@@ -1,0 +1,2 @@
+punch ALL=(root) NOPASSWD: /usr/local/lib/timeclockpi/timeclockpi-restore-launch
+punch ALL=(root) NOPASSWD: /usr/local/lib/timeclockpi/timeclockpi-usb-eject

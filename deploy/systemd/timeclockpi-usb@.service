@@ -1,0 +1,9 @@
+[Unit]
+Description=TimeClockPi USB storage mount for %I
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/timeclockpi/timeclockpi-usb-mount %I
+ExecStop=/usr/local/lib/timeclockpi/timeclockpi-usb-unmount %I
+RemainAfterExit=yes

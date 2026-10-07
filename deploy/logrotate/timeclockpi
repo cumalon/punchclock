@@ -1,0 +1,9 @@
+/var/log/timeclockpi/timeclockpi.log {
+    weekly
+    rotate 13
+    maxsize 1M
+    compress
+    delaycompress
+    missingok
+    notifempty
+}

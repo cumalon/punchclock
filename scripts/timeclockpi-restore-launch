@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+exec /usr/bin/systemd-run --unit=timeclockpi-restore-apply --collect /usr/local/lib/timeclockpi/timeclockpi-restore-apply apply

@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+DEVICE="/dev/$1"
+MOUNTPOINT="/mnt/timeclockpi-usb"
+STATE_DIR="/run/timeclockpi"
+STATE_FILE="$STATE_DIR/usb-device"
+
+APP_USER="${TIMECLOCKPI_USER:-punch}"
+
+if ! id "$APP_USER" >/dev/null 2>&1; then
+    echo "No existeix l'usuari de TimeClockPi: $APP_USER" >&2
+    exit 1
+fi
+
+APP_UID="$(id -u "$APP_USER")"
+APP_GID="$(id -g "$APP_USER")"
+
+mkdir -p "$MOUNTPOINT"
+install -d -o "$APP_USER" -g "$APP_USER" -m 0755 "$STATE_DIR"
+
+if mountpoint -q "$MOUNTPOINT"; then
+    MOUNTED_DEVICE="$(findmnt -no SOURCE --target "$MOUNTPOINT")"
+    if [ "$MOUNTED_DEVICE" != "$DEVICE" ]; then
+        echo "El punt de muntatge ja està ocupat per $MOUNTED_DEVICE" >&2
+        exit 1
+    fi
+    printf '%s\n' "$DEVICE" > "$STATE_FILE"
+    exit 0
+fi
+
+mount -o nosuid,nodev,noexec,uid="$APP_UID",gid="$APP_GID" "$DEVICE" "$MOUNTPOINT"
+printf '%s\n' "$DEVICE" > "$STATE_FILE"

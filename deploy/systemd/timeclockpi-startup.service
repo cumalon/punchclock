@@ -1,0 +1,14 @@
+[Unit]
+Description=TimeClockPi terminal startup event
+After=local-fs.target timeclockpi-restore-recover.service
+Before=timeclockpi.service
+
+[Service]
+Type=oneshot
+User=punch
+Environment=TIMECLOCKPI_DATA_DIR=/var/lib/timeclockpi
+WorkingDirectory=/home/punch/timeclockpi
+ExecStart=/home/punch/timeclockpi/.venv/bin/python /home/punch/timeclockpi/terminal_startup.py
+
+[Install]
+WantedBy=multi-user.target

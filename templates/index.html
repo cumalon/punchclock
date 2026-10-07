@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ca">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TimeClockPi</title>
+    <link rel="stylesheet" href="/static/style.css?v=6.6">
+</head>
+<body>
+    <main class="screen">
+        <header class="kiosk-header">
+            <img class="brand-logo" src="/branding/logo" alt="TimeClockPi">
+            <div class="datetime">
+                <div id="clock">--:--</div>
+                <div id="date">--</div>
+            </div>
+        </header>
+
+        <section class="pin kiosk-card" id="pin-screen">
+            <h1>Introdueix el PIN</h1>
+            <p class="screen-hint">Identifica’t per registrar l’entrada o la sortida</p>
+            <div id="pin-display"></div>
+
+            <div class="keypad">
+                <button>1</button>
+                <button>2</button>
+                <button>3</button>
+                <button>4</button>
+                <button>5</button>
+                <button>6</button>
+                <button>7</button>
+                <button>8</button>
+                <button>9</button>
+                <button data-action="clear">C</button>
+                <button>0</button>
+                <button data-action="enter">OK</button>
+            </div>
+        </section>
+
+        <section id="punch-screen" class="kiosk-card hidden">
+            <h1 id="employee-name"></h1>
+
+            <div class="punch-actions">
+                <button data-punch="entrada">ENTRADA</button>
+                <button data-punch="sortida">SORTIDA</button>
+            </div>
+            <button id="cancel-punch" class="secondary-action" type="button">TORNAR</button>
+
+            <div id="punch-message"></div>
+            <div id="incident-confirmation" class="hidden">
+                <div class="incident-heading"><span aria-hidden="true">⚠</span> Incidència de fitxatge</div>
+                <p id="incident-message"></p>
+                <button id="confirm-incident" type="button">CONFIRMAR</button>
+                <button id="cancel-incident" type="button">CANCEL·LAR</button>
+            </div>
+        </section>
+    </main>
+
+    <div id="usb-dialog" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="usb-dialog-title">
+        <div class="modal-card">
+            <h2 id="usb-dialog-title">USB detectat</h2>
+            <p id="usb-question">Introdueix el PIN d'administrador per exportar els fitxatges.</p>
+            <form id="usb-auth" class="usb-auth" autocomplete="off">
+                <div id="usb-pin-display" class="usb-pin-display" aria-label="PIN d'administrador"></div>
+                <div id="usb-keypad" class="usb-keypad" aria-label="Teclat numèric">
+                    <button type="button">1</button><button type="button">2</button><button type="button">3</button>
+                    <button type="button">4</button><button type="button">5</button><button type="button">6</button>
+                    <button type="button">7</button><button type="button">8</button><button type="button">9</button>
+                    <button type="button" data-action="clear">C</button><button type="button">0</button><button type="submit">OK</button>
+                </div>
+                <div class="modal-actions">
+                    <button id="usb-auth-cancel" type="button">CANCEL·LAR</button>
+                </div>
+            </form>
+            <p id="usb-message"></p>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=6.4"></script>
+</body>
+</html>

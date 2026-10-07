@@ -1,0 +1,4 @@
+# TimeClockPi removable USB storage.
+# Only filesystem partitions on the USB bus are candidates.
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_BUS}=="usb", ENV{ID_FS_USAGE}=="filesystem", TAG+="systemd", ENV{SYSTEMD_WANTS}+="timeclockpi-usb@%k.service"
+ACTION=="remove", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_BUS}=="usb", ENV{ID_FS_USAGE}=="filesystem", RUN+="/bin/systemctl --no-block stop timeclockpi-usb@%k.service"

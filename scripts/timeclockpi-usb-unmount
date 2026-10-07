@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+DEVICE="/dev/$1"
+MOUNTPOINT="/mnt/timeclockpi-usb"
+STATE_FILE="/run/timeclockpi/usb-device"
+
+if [ -f "$STATE_FILE" ] && [ "$(cat "$STATE_FILE")" = "$DEVICE" ]; then
+    if mountpoint -q "$MOUNTPOINT"; then
+        sync
+        umount "$MOUNTPOINT"
+    fi
+    rm -f "$STATE_FILE"
+fi

@@ -1,0 +1,10 @@
+#!/bin/sh
+
+WAYLAND_DISPLAY=wayland-0 wlr-randr --output DSI-1 --transform 90
+
+LABWC_PID=$(pgrep -n -x labwc)
+
+while kill -0 "$LABWC_PID" 2>/dev/null; do
+    WAYLAND_DISPLAY=wayland-0 chromium --ozone-platform=wayland --kiosk --disable-save-password-bubble --disable-features=PasswordManagerOnboarding http://127.0.0.1:8000
+    sleep 3
+done

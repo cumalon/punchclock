@@ -1,0 +1,12 @@
+[Unit]
+Description=Recover an interrupted TimeClockPi restore
+After=local-fs.target
+Before=timeclockpi-startup.service timeclockpi.service
+ConditionPathExists=!/run/timeclockpi-restore/boot-recovered
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/timeclockpi/timeclockpi-restore-apply recover
+
+[Install]
+WantedBy=multi-user.target

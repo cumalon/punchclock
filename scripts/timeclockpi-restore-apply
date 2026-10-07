@@ -1,0 +1,550 @@
+#!/usr/bin/python3
+
+import argparse
+import fcntl
+import os
+import pwd
+import secrets
+import shutil
+import sqlite3
+import stat
+import subprocess
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+
+STAGING_DIR = Path("/run/timeclockpi/restore/data")
+DATA_DIR = Path("/var/lib/timeclockpi")
+JOURNAL_DIR = Path("/var/lib/timeclockpi-restore")
+STATUS_DIR = Path("/run/timeclockpi-restore")
+MAX_DATABASE_SIZE = 2 * 1024 * 1024 * 1024
+MAX_SESSION_KEY_SIZE = 4096
+COPY_NAMES = {"timeclock.db", "session_key"}
+
+
+def open_directory(path):
+    path = Path(path)
+    if not path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"Invalid directory path: {path}")
+
+    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for part in path.parts[1:]:
+            next_descriptor = os.open(
+                part,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=descriptor,
+            )
+            os.close(descriptor)
+            descriptor = next_descriptor
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def check_private_directory(path, expected_uid=0):
+    descriptor = open_directory(path)
+    metadata = os.fstat(descriptor)
+    if metadata.st_uid != expected_uid or metadata.st_mode & 0o077:
+        os.close(descriptor)
+        raise ValueError(f"Directory is not privately owned: {path}")
+    return descriptor
+
+
+def check_status_directory(path, expected_uid=0):
+    descriptor = open_directory(path)
+    metadata = os.fstat(descriptor)
+    if metadata.st_uid != expected_uid or metadata.st_mode & 0o022:
+        os.close(descriptor)
+        raise ValueError(f"Restore status directory is not root-controlled: {path}")
+    return descriptor
+
+
+def open_regular_file(directory_fd, name, required=True, max_size=None):
+    if name not in COPY_NAMES:
+        raise ValueError(f"Unexpected file name: {name}")
+    try:
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+            dir_fd=directory_fd,
+        )
+    except FileNotFoundError:
+        if required:
+            raise ValueError(f"Required restore file is missing: {name}")
+        return None
+
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        os.close(descriptor)
+        raise ValueError(f"Restore input is not a regular, single-link file: {name}")
+    if max_size is not None and metadata.st_size > max_size:
+        os.close(descriptor)
+        raise ValueError(f"Restore input is too large: {name}")
+    return descriptor
+
+
+def copy_file(source_fd, destination_dir_fd, name, mode=0o600, owner=None):
+    source_metadata = os.fstat(source_fd)
+    if not stat.S_ISREG(source_metadata.st_mode):
+        raise ValueError(f"Restore input is not a regular file: {name}")
+
+    destination_fd = os.open(
+        name,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+        mode,
+        dir_fd=destination_dir_fd,
+    )
+    try:
+        while True:
+            content = os.read(source_fd, 1024 * 1024)
+            if not content:
+                break
+            view = memoryview(content)
+            while view:
+                written = os.write(destination_fd, view)
+                view = view[written:]
+
+        final_metadata = os.fstat(source_fd)
+        if (
+            source_metadata.st_size != final_metadata.st_size
+            or source_metadata.st_mtime_ns != final_metadata.st_mtime_ns
+            or source_metadata.st_ctime_ns != final_metadata.st_ctime_ns
+        ):
+            raise ValueError(f"Restore input changed while being copied: {name}")
+        if owner is not None:
+            os.fchown(destination_fd, *owner)
+        os.fchmod(destination_fd, mode)
+        os.fsync(destination_fd)
+    except Exception:
+        os.close(destination_fd)
+        os.unlink(name, dir_fd=destination_dir_fd)
+        raise
+    os.close(destination_fd)
+
+
+def fsync_directory(directory_fd):
+    os.fsync(directory_fd)
+
+
+def verify_database(path):
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise ValueError("Restore database failed its integrity check")
+    finally:
+        connection.close()
+
+
+def create_private_child(parent_fd, name):
+    os.mkdir(name, 0o700, dir_fd=parent_fd)
+    return os.open(
+        name,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=parent_fd,
+    )
+
+
+def remove_private_child(parent_fd, name, expected_uid=0):
+    try:
+        child_fd = os.open(
+            name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=parent_fd,
+        )
+    except FileNotFoundError:
+        return
+    try:
+        metadata = os.fstat(child_fd)
+        if metadata.st_uid != expected_uid or metadata.st_mode & 0o077:
+            raise ValueError(f"Unexpected directory in restore journal: {name}")
+    finally:
+        os.close(child_fd)
+    shutil.rmtree(f"/proc/self/fd/{parent_fd}/{name}")
+    fsync_directory(parent_fd)
+
+
+def write_text_atomic(directory_fd, name, value, mode=0o600):
+    temporary_name = f".{name}.{secrets.token_hex(16)}"
+    descriptor = os.open(
+        temporary_name,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+        mode,
+        dir_fd=directory_fd,
+    )
+    try:
+        contents = memoryview(value.encode("utf-8"))
+        while contents:
+            written = os.write(descriptor, contents)
+            contents = contents[written:]
+        os.fchmod(descriptor, mode)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    os.replace(
+        temporary_name,
+        name,
+        src_dir_fd=directory_fd,
+        dst_dir_fd=directory_fd,
+    )
+    fsync_directory(directory_fd)
+
+
+def write_status(status_dir_fd, state):
+    write_text_atomic(status_dir_fd, "result", state + "\n", 0o644)
+
+
+def copy_existing_file(data_fd, rollback_fd, name, required=False, max_size=None):
+    source_fd = open_regular_file(
+        data_fd, name, required=required, max_size=max_size
+    )
+    if source_fd is None:
+        return False
+    try:
+        copy_file(source_fd, rollback_fd, name)
+    finally:
+        os.close(source_fd)
+    return True
+
+
+def snapshot_staging(staging_path, incoming_fd):
+    staging_fd = open_directory(staging_path)
+    try:
+        names = set(os.listdir(staging_fd))
+        if not names <= COPY_NAMES or "timeclock.db" not in names:
+            raise ValueError("Restore staging contains unexpected or missing files")
+        for name in names:
+            source_fd = open_regular_file(
+                staging_fd,
+                name,
+                max_size=MAX_DATABASE_SIZE if name == "timeclock.db" else MAX_SESSION_KEY_SIZE,
+            )
+            try:
+                copy_file(source_fd, incoming_fd, name)
+            finally:
+                os.close(source_fd)
+    finally:
+        os.close(staging_fd)
+
+    fsync_directory(incoming_fd)
+    database_path = f"/proc/self/fd/{incoming_fd}/timeclock.db"
+    verify_database(database_path)
+    try:
+        key_fd = open_regular_file(incoming_fd, "session_key", required=False)
+    except OSError as error:
+        raise ValueError("Could not validate restored session key") from error
+    if key_fd is not None:
+        try:
+            key = os.read(key_fd, MAX_SESSION_KEY_SIZE + 1)
+            if not key or len(key) > MAX_SESSION_KEY_SIZE:
+                raise ValueError("Restore session key is empty or too large")
+            key.decode("utf-8")
+        finally:
+            os.close(key_fd)
+
+
+def data_directory_fd(path):
+    descriptor = open_directory(path)
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISDIR(metadata.st_mode):
+        os.close(descriptor)
+        raise ValueError("TimeClockPi data path is not a directory")
+    return descriptor
+
+
+def secure_data_directory(data_fd):
+    os.fchown(data_fd, 0, 0)
+    os.fchmod(data_fd, 0o700)
+    fsync_directory(data_fd)
+
+
+def restore_data_access(data_fd, owner):
+    os.fchown(data_fd, *owner)
+    os.fchmod(data_fd, 0o750)
+    fsync_directory(data_fd)
+
+
+def replace_from(source_fd, data_fd, name, owner, mode):
+    temporary_name = f".{name}.{secrets.token_hex(16)}"
+    copy_file(source_fd, data_fd, temporary_name, mode=mode, owner=owner)
+    os.replace(
+        temporary_name,
+        name,
+        src_dir_fd=data_fd,
+        dst_dir_fd=data_fd,
+    )
+    fsync_directory(data_fd)
+
+
+def install_payload(source_fd, data_fd, owner):
+    for name, mode in (("timeclock.db", 0o644), ("session_key", 0o600)):
+        file_fd = open_regular_file(source_fd, name, required=name == "timeclock.db")
+        if file_fd is None:
+            try:
+                os.unlink(name, dir_fd=data_fd)
+            except FileNotFoundError:
+                pass
+            continue
+        try:
+            replace_from(file_fd, data_fd, name, owner, mode)
+        finally:
+            os.close(file_fd)
+
+
+def atomic_state(journal_fd, state):
+    write_text_atomic(journal_fd, "state", state + "\n")
+
+
+def read_state(journal_fd):
+    try:
+        descriptor = os.open(
+            "state",
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=journal_fd,
+        )
+    except FileNotFoundError:
+        return None
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("Invalid restore transaction state")
+        value = os.read(descriptor, 32).decode("ascii").strip()
+    finally:
+        os.close(descriptor)
+    if value not in {"pending", "committed"}:
+        raise ValueError("Invalid restore transaction state")
+    return value
+
+
+def run_command(*arguments):
+    subprocess.run(arguments, check=True, close_fds=True)
+
+
+def backend_healthy(command=run_command):
+    for _ in range(10):
+        try:
+            command(
+                "/usr/bin/systemctl",
+                "is-active",
+                "--quiet",
+                "timeclockpi.service",
+            )
+            with urllib.request.urlopen(
+                "http://127.0.0.1:8000/api/settings", timeout=2
+            ) as response:
+                if response.status == 200:
+                    return True
+        except (OSError, subprocess.CalledProcessError, urllib.error.URLError):
+            pass
+        time.sleep(1)
+    return False
+
+
+def recover_transaction(
+    data_fd,
+    journal_fd,
+    status_fd,
+    owner,
+    command,
+    start_service,
+    health_check=backend_healthy,
+):
+    state = read_state(journal_fd)
+    if state is None:
+        restore_data_access(data_fd, owner)
+        write_status(status_fd, "idle")
+        return
+    if state == "committed":
+        remove_private_child(journal_fd, "incoming")
+        remove_private_child(journal_fd, "rollback")
+        os.unlink("state", dir_fd=journal_fd)
+        fsync_directory(journal_fd)
+        write_status(status_fd, "success")
+        return
+
+    rollback_fd = os.open(
+        "rollback",
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=journal_fd,
+    )
+    try:
+        if start_service:
+            command("/usr/bin/systemctl", "stop", "timeclockpi.service")
+        secure_data_directory(data_fd)
+        install_payload(rollback_fd, data_fd, owner)
+        restore_data_access(data_fd, owner)
+    finally:
+        os.close(rollback_fd)
+
+    if start_service:
+        command("/usr/bin/systemctl", "start", "timeclockpi.service")
+        if not health_check(command):
+            write_status(status_fd, "rollback")
+            raise RuntimeError("Previous database was restored but the backend is unhealthy")
+
+    atomic_state(journal_fd, "committed")
+    remove_private_child(journal_fd, "incoming")
+    remove_private_child(journal_fd, "rollback")
+    os.unlink("state", dir_fd=journal_fd)
+    fsync_directory(journal_fd)
+    write_status(status_fd, "rollback")
+
+
+def apply_restore(
+    staging_path=STAGING_DIR,
+    data_path=DATA_DIR,
+    journal_path=JOURNAL_DIR,
+    status_path=STATUS_DIR,
+    owner=None,
+    command=run_command,
+    health_check=backend_healthy,
+):
+    app_user = pwd.getpwnam("punch") if owner is None else None
+    owner = (app_user.pw_uid, app_user.pw_gid) if owner is None else owner
+    journal_fd = check_private_directory(journal_path)
+    status_fd = check_status_directory(status_path)
+    data_fd = data_directory_fd(data_path)
+    try:
+        lock_fd = os.open(
+            "lock",
+            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+            dir_fd=journal_fd,
+        )
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            if read_state(journal_fd) is not None:
+                recover_transaction(
+                    data_fd, journal_fd, status_fd, owner, command, True
+                )
+            remove_private_child(journal_fd, "incoming")
+            remove_private_child(journal_fd, "rollback")
+            incoming_fd = create_private_child(journal_fd, "incoming")
+            try:
+                snapshot_staging(staging_path, incoming_fd)
+            finally:
+                os.close(incoming_fd)
+
+            write_status(status_fd, "running")
+            command("/usr/bin/systemctl", "stop", "timeclockpi.service")
+            rollback_fd = None
+            pending = False
+            try:
+                rollback_fd = create_private_child(journal_fd, "rollback")
+                secure_data_directory(data_fd)
+                old_database_fd = open_regular_file(data_fd, "timeclock.db")
+                try:
+                    copy_file(old_database_fd, rollback_fd, "timeclock.db")
+                finally:
+                    os.close(old_database_fd)
+                copy_existing_file(
+                    data_fd,
+                    rollback_fd,
+                    "session_key",
+                    max_size=MAX_SESSION_KEY_SIZE,
+                )
+                fsync_directory(rollback_fd)
+                fsync_directory(journal_fd)
+                atomic_state(journal_fd, "pending")
+                pending = True
+
+                incoming_fd = os.open(
+                    "incoming",
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    dir_fd=journal_fd,
+                )
+                try:
+                    install_payload(incoming_fd, data_fd, owner)
+                finally:
+                    os.close(incoming_fd)
+                restore_data_access(data_fd, owner)
+                command("/usr/bin/systemctl", "start", "timeclockpi.service")
+                if not health_check(command):
+                    raise RuntimeError("Restored backend did not pass its health check")
+                atomic_state(journal_fd, "committed")
+                write_status(status_fd, "success")
+            except Exception:
+                if pending:
+                    recover_transaction(
+                        data_fd,
+                        journal_fd,
+                        status_fd,
+                        owner,
+                        command,
+                        True,
+                        health_check,
+                    )
+                else:
+                    restore_data_access(data_fd, owner)
+                    command("/usr/bin/systemctl", "start", "timeclockpi.service")
+                    write_status(status_fd, "rollback")
+                raise
+            finally:
+                if rollback_fd is not None:
+                    os.close(rollback_fd)
+
+            remove_private_child(journal_fd, "incoming")
+            remove_private_child(journal_fd, "rollback")
+            os.unlink("state", dir_fd=journal_fd)
+            fsync_directory(journal_fd)
+        finally:
+            os.close(lock_fd)
+    finally:
+        os.close(data_fd)
+        os.close(status_fd)
+        os.close(journal_fd)
+
+
+def recover_on_startup(
+    data_path=DATA_DIR,
+    journal_path=JOURNAL_DIR,
+    status_path=STATUS_DIR,
+    owner=None,
+    command=run_command,
+):
+    app_user = pwd.getpwnam("punch") if owner is None else None
+    owner = (app_user.pw_uid, app_user.pw_gid) if owner is None else owner
+    journal_fd = check_private_directory(journal_path)
+    status_fd = check_status_directory(status_path)
+    data_fd = data_directory_fd(data_path)
+    try:
+        lock_fd = os.open(
+            "lock",
+            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+            dir_fd=journal_fd,
+        )
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            recover_transaction(
+                data_fd, journal_fd, status_fd, owner, command, False
+            )
+            write_text_atomic(status_fd, "boot-recovered", "complete\n")
+        finally:
+            os.close(lock_fd)
+    finally:
+        os.close(data_fd)
+        os.close(status_fd)
+        os.close(journal_fd)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("operation", choices=("apply", "recover"))
+    operation = parser.parse_args().operation
+    if os.geteuid() != 0:
+        raise SystemExit("This helper must run as root")
+    try:
+        if operation == "apply":
+            apply_restore()
+        else:
+            recover_on_startup()
+    except (OSError, ValueError, RuntimeError) as error:
+        raise SystemExit(str(error)) from error
+
+
+if __name__ == "__main__":
+    main()

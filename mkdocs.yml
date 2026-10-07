@@ -1,0 +1,14 @@
+site_name: TimeClockPi
+site_description: Developer documentation for TimeClockPi
+repo_url: https://github.com/cumalon/timeclockpi
+repo_name: cumalon/timeclockpi
+
+theme:
+  name: mkdocs
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Development: development.md
+  - Deployment: deployment.md
+  - Operations: operations.md

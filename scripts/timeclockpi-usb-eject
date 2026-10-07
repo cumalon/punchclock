@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+STATE_FILE="/run/timeclockpi/usb-device"
+
+if [ ! -f "$STATE_FILE" ]; then
+    echo "No hi ha cap dispositiu USB gestionat" >&2
+    exit 1
+fi
+
+DEVICE="$(cat "$STATE_FILE")"
+case "$DEVICE" in
+    /dev/sd[a-z][0-9]*)
+        ;;
+    *)
+        echo "Dispositiu USB no vàlid" >&2
+        exit 1
+        ;;
+esac
+
+NAME="${DEVICE#/dev/}"
+sync
+systemctl stop "timeclockpi-usb@${NAME}.service"
+
+if mountpoint -q /mnt/timeclockpi-usb; then
+    echo "No s'ha pogut desmuntar el dispositiu USB" >&2
+    exit 1
+fi

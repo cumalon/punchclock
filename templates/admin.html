@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ca">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TimeClockPi - Administració</title>
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <link rel="stylesheet" href="/static/admin.css?v=6.18">
+</head>
+<body>
+    <div class="admin-layout">
+        <aside class="sidebar">
+            <div class="brand"><img src="/branding/logo" alt="TimeClockPi"><span>Administració</span></div>
+            <nav>
+                <a href="#fitxatges" data-section="punches">Fitxatges</a>
+                <a class="active" href="#treballadors" data-section="employees">Treballadors</a>
+                <span class="nav-separator" aria-hidden="true"></span>
+                <a href="#copies" data-section="backups">Còpies de seguretat</a>
+                <a href="#configuracio" data-section="settings">Configuració</a>
+            </nav>
+            <button id="logout-button" type="button">Tancar sessió</button>
+        </aside>
+
+        <main class="content">
+            <header class="page-header">
+                <h1>Gestió de treballadors</h1>
+                <p>Altes, baixes i credencials d'accés.</p>
+            </header>
+
+            <div id="employees-section">
+            <section class="panel">
+                <h2>Nou treballador</h2>
+                <form id="new-employee">
+                    <label>Nom <input id="new-name" required></label>
+                    <label>PIN <input id="new-pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" required></label>
+                    <button type="submit">Crear</button>
+                </form>
+                <p id="form-message"></p>
+            </section>
+
+            <section class="panel">
+                <h2>Treballadors</h2>
+                <div class="employee-list-header" aria-hidden="true">
+                    <span>Nom</span><span>Nou PIN</span><span>Estat</span><span>Acció</span>
+                </div>
+                <div id="employees">Carregant...</div>
+            </section>
+            </div>
+
+            <div id="punches-section" class="hidden">
+                <header class="section-header">
+                    <h1>Consulta de fitxatges</h1>
+                    <p>Consulta els moviments registrats al terminal.</p>
+                </header>
+
+                <section class="panel punch-filter-panel">
+                    <h2>Filtres</h2>
+                    <div class="filters">
+                        <label>Origen
+                            <select id="punch-employee"><option value="">Tots</option></select>
+                        </label>
+                        <label>Des de <input id="date-from" type="date"></label>
+                        <label>Fins a <input id="date-to" type="date"></label>
+                    </div>
+                    <div class="filter-actions">
+                        <button id="export-csv" type="button">Exportar CSV</button>
+                        <button id="export-events-csv" class="secondary-button" type="button">Esdeveniments tècnics CSV</button>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <h2>Fitxatges</h2>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Data</th><th>Hora</th><th>Treballador / sistema</th><th>Tipus</th><th>Mètode</th><th>Incidència / detall</th><th>Accions</th></tr></thead>
+                            <tbody id="punches"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="incident-review-editor" class="panel hidden">
+                    <h2>Revisar incidència</h2>
+                    <p id="incident-review-original" class="hint"></p>
+                    <label>Observació <input id="incident-review-note" placeholder="Observació de la revisió"></label>
+                    <div class="correction-actions">
+                        <button id="save-incident-review" type="button">Marcar com a revisada</button>
+                        <button id="cancel-incident-review" type="button">Cancel·lar</button>
+                    </div>
+                    <p id="incident-review-message"></p>
+                    <div id="incident-review-history"></div>
+                </section>
+
+                <section id="punch-editor" class="panel hidden">
+                    <h2>Corregir fitxatge</h2>
+                    <p id="punch-editor-original" class="hint"></p>
+                    <div class="correction-form">
+                        <label>Treballador <select id="edit-punch-employee"></select></label>
+                        <label>Data i hora <input id="edit-punch-timestamp" type="datetime-local" step="1"></label>
+                        <label>Tipus
+                            <select id="edit-punch-type">
+                                <option value="entrada">Entrada</option>
+                                <option value="sortida">Sortida</option>
+                            </select>
+                        </label>
+                        <label>Motiu <input id="edit-punch-reason" placeholder="Motiu de la correcció"></label>
+                        <div class="correction-actions">
+                            <button id="save-punch-correction" type="button">Desar correcció</button>
+                            <button id="cancel-punch-correction" type="button">Cancel·lar</button>
+                        </div>
+                    </div>
+                    <p id="punch-correction-message"></p>
+                    <div id="punch-correction-history"></div>
+                </section>
+            </div>
+
+            <div id="backups-section" class="hidden">
+                <header class="section-header">
+                    <h1>Còpies de seguretat</h1>
+                    <p>Crea i restaura còpies completes del terminal en un dispositiu USB.</p>
+                </header>
+
+                <section class="panel backup-usb-panel">
+                    <h2>Dispositiu USB</h2>
+                    <div class="backup-usb-actions">
+                        <p id="backup-usb-status">Comprovant...</p>
+                        <button id="create-backup" type="button">Crear còpia ara</button>
+                    </div>
+                    <p id="backup-message"></p>
+                </section>
+
+                <section class="panel backup-list-panel">
+                    <h2>Còpies disponibles</h2>
+                    <p class="hint">Només es mostren còpies que han superat la verificació d'integritat.</p>
+                    <div id="backup-list">Carregant...</div>
+                </section>
+
+                <section id="restore-confirmation" class="panel hidden">
+                    <h2>Confirmar restauració</h2>
+                    <p id="restore-selected"></p>
+                    <p><strong>Atenció:</strong> es substituiran les dades actuals del terminal per les de la còpia seleccionada. El servei es reiniciarà i la sessió d'administració pot quedar invalidada.</p>
+                    <label>Escriu <strong>RESTAURAR</strong> per confirmar
+                        <input id="restore-confirmation-text" autocomplete="off">
+                    </label>
+                    <div class="correction-actions">
+                        <button id="apply-restore" type="button">Restaurar còpia</button>
+                        <button id="cancel-restore" type="button">Cancel·lar</button>
+                    </div>
+                    <p id="restore-message"></p>
+                </section>
+            </div>
+
+            <div id="settings-section" class="hidden">
+                <header class="section-header">
+                    <h1>Configuració</h1>
+                    <p>Configuració bàsica i estat del terminal.</p>
+                </header>
+
+                <section class="panel">
+                    <h2>Terminal</h2>
+                    <div class="settings-form terminal-settings-form">
+                        <label>Nom del terminal <input id="terminal-name"></label>
+                        <label>Identificador <input id="terminal-id"></label>
+                        <label>Volum <span id="sound-volume-value">20%</span>
+                            <input id="sound-volume" type="range" min="0" max="100" step="1" value="20">
+                        </label>
+                        <button id="save-settings" type="button">Desar</button>
+                    </div>
+                    <p id="settings-message"></p>
+                </section>
+
+                <section class="panel">
+                    <h2>Logo personalitzat</h2>
+                    <p id="logo-status">Comprovant...</p>
+                    <div class="settings-form logo-settings-form">
+                        <label>Imatge (PNG o JPEG, màx. 1 MB) <input id="logo-file" type="file" accept="image/png,image/jpeg"></label>
+                        <button id="upload-logo" type="button">Pujar logo</button>
+                        <button id="remove-logo" type="button">Tornar al logo per defecte</button>
+                    </div>
+                    <p id="logo-message"></p>
+                </section>
+
+                <section class="panel">
+                    <h2>Contrasenya d'administrador</h2>
+                    <div class="settings-form password-settings-form">
+                        <label>Contrasenya actual <input id="current-admin-password" type="password" autocomplete="current-password"></label>
+                        <label>Nova contrasenya <input id="new-admin-password" type="password" autocomplete="new-password" minlength="12"></label>
+                        <label>Repeteix la nova contrasenya <input id="confirm-admin-password" type="password" autocomplete="new-password" minlength="12"></label>
+                        <button id="change-admin-password" type="button">Canviar contrasenya</button>
+                    </div>
+                    <p id="admin-password-message"></p>
+                    <p class="hint">Després del canvi caldrà tornar a iniciar sessió.</p>
+                </section>
+
+                <section class="panel">
+                    <h2>PIN d'administrador</h2>
+                    <div class="settings-form pin-settings-form">
+                        <label>Nou PIN <input id="new-admin-pin" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="new-password"></label>
+                        <label>Repeteix el PIN <input id="confirm-admin-pin" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="new-password"></label>
+                        <button id="change-admin-pin" type="button">Desar PIN</button>
+                    </div>
+                    <p id="admin-pin-message"></p>
+                    <p class="hint">PIN individual de 6 dígits per autoritzar operacions al terminal.</p>
+                </section>
+
+                <section class="panel">
+                    <h2>Sistema</h2>
+                    <dl class="system-info">
+                        <dt>Versió</dt><dd id="system-version">—</dd>
+                        <dt>Zona horària</dt><dd id="system-timezone">—</dd>
+                        <dt>Hora del sistema</dt><dd id="system-time">—</dd>
+                        <dt>Base de dades</dt><dd id="system-database">—</dd>
+                    </dl>
+                    <div class="system-actions">
+                        <button type="button" disabled>Reiniciar terminal</button>
+                        <button type="button" disabled>Apagar terminal</button>
+                    </div>
+                    <p class="hint">Les accions de sistema s'activaran quan el servei systemd estigui configurat.</p>
+                </section>
+            </div>
+        </main>
+    </div>
+    <script src="/static/admin.js?v=6.12"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ca">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TimeClockPi - Accés administratiu</title>
+    <link rel="stylesheet" href="/static/admin.css?v=6.2">
+</head>
+<body class="login-page">
+    <main class="login-card">
+        <img class="login-brand" src="/branding/logo" alt="TimeClockPi">
+        <h1>Administració</h1>
+        <p>Accés a la gestió del terminal TimeClockPi.</p>
+        <form id="admin-login" class="login-form">
+            <label>Usuari <input id="username" autocomplete="username" required autofocus></label>
+            <label>Contrasenya <input id="password" type="password" autocomplete="current-password" required></label>
+            <button type="submit">Entrar</button>
+        </form>
+        <p id="login-message" class="message"></p>
+    </main>
+    <script src="/static/admin_login.js"></script>
+</body>
+</html>

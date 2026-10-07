@@ -1,0 +1,444 @@
+:root {
+    --ink: #1b1b1b;
+    --muted: #686868;
+    --surface: #ffffff;
+    --background: #f5f3ed;
+    --line: #ddd9cf;
+    --accent: #f5c84c;
+    --accent-strong: #e8b82f;
+    --radius: 18px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    color: var(--ink);
+    background: var(--background);
+    overflow: hidden;
+}
+
+.screen {
+    width: 100%;
+    min-height: 100vh;
+    padding: 18px 22px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.kiosk-header {
+    width: min(100%, 760px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 14px;
+}
+
+.brand-logo {
+    width: 112px;
+    height: auto;
+    display: block;
+}
+
+.datetime {
+    text-align: right;
+}
+
+#clock {
+    font-size: 2.4rem;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+}
+
+#date {
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 0.95rem;
+    text-transform: capitalize;
+}
+
+.kiosk-card {
+    width: min(100%, 430px);
+    padding: 20px 26px 24px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 30px rgba(34, 31, 24, 0.08);
+    text-align: center;
+}
+
+h1 {
+    margin: 0 0 5px;
+    font-size: 2rem;
+    line-height: 1.1;
+}
+
+.screen-hint {
+    margin: 0 0 10px;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+p { font-size: 1.2rem; }
+
+.hidden { display: none !important; }
+
+#pin-display {
+    min-height: 34px;
+    margin: 4px 0 8px;
+    font-size: 1.5rem;
+    letter-spacing: 0.18em;
+    text-align: center;
+}
+
+.keypad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    width: 100%;
+}
+
+.keypad button,
+.usb-keypad button,
+.modal-actions button,
+.punch-actions button,
+.secondary-action,
+#incident-confirmation button {
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink);
+    font-weight: 700;
+    border-radius: 11px;
+    touch-action: manipulation;
+    cursor: pointer;
+}
+
+.keypad button {
+    min-height: 54px;
+    font-size: 1.35rem;
+}
+
+.keypad button:active,
+.usb-keypad button:active {
+    background: #eeeae1;
+    transform: translateY(1px);
+}
+
+.keypad button[data-action="enter"] {
+    background: var(--accent);
+    border-color: var(--accent-strong);
+}
+
+.keypad button[data-action="clear"] {
+    color: var(--muted);
+    background: #f3f1eb;
+}
+
+.punch-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 22px;
+}
+
+.punch-actions button {
+    min-height: 92px;
+    font-size: 1.25rem;
+}
+
+.punch-actions button[data-punch="entrada"] {
+    background: var(--accent);
+    border-color: var(--accent-strong);
+}
+
+.secondary-action {
+    width: 100%;
+    min-height: 48px;
+    margin-top: 14px;
+    font-size: 1rem;
+    color: var(--muted);
+    background: #f3f1eb;
+}
+
+#punch-message {
+    min-height: 1.5em;
+    margin-top: 16px;
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+#incident-confirmation {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+}
+
+#incident-confirmation button {
+    min-height: 48px;
+    padding: 0 16px;
+    margin: 4px;
+}
+
+.incident-heading {
+    margin-bottom: 8px;
+    color: #9a5a00;
+    font-size: 1rem;
+    font-weight: 800;
+}
+
+.incident-heading span {
+    margin-right: 4px;
+}
+
+#incident-message span {
+    display: block;
+}
+#incident-message span + span {
+    margin-top: 8px;
+    font-weight: 700;
+}
+#incident-confirmation #confirm-incident {
+    background: var(--accent);
+    border-color: var(--accent-strong);
+}
+#incident-confirmation #cancel-incident {
+    background: #f3f1eb;
+    color: var(--muted);
+}
+
+#usb-auth-cancel {
+    background: #f3f1eb;
+    color: var(--muted);
+}
+
+.modal {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(20, 19, 16, 0.62);
+    z-index: 1000;
+}
+
+.modal-card {
+    width: min(88vw, 420px);
+    max-height: 92vh;
+    padding: 18px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    text-align: center;
+    overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.24);
+}
+
+.modal-card h2 {
+    margin: 0 0 7px;
+    font-size: 1.5rem;
+}
+
+.modal-card p {
+    margin: 6px 0;
+    font-size: 1rem;
+}
+
+.usb-auth {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.usb-pin-display {
+    min-height: 28px;
+    margin: 2px 0 4px;
+    font-size: 1.3rem;
+    letter-spacing: 0.18em;
+    text-align: center;
+}
+
+.usb-keypad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+    width: 100%;
+}
+
+.usb-keypad button {
+    min-height: 42px;
+    font-size: 1.1rem;
+}
+
+.usb-keypad button[type="submit"] {
+    background: var(--accent);
+    border-color: var(--accent-strong);
+}
+
+.modal-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.modal-actions button {
+    min-height: 44px;
+    font-size: 1rem;
+}
+
+#usb-message {
+    min-height: 2.4em;
+    margin: 6px 0 0;
+    font-size: 0.9rem;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+@media (max-height: 600px) {
+    .screen { padding: 10px 18px 12px; }
+    .kiosk-header { margin-bottom: 7px; }
+    .brand-logo { width: 82px; }
+    #clock { font-size: 2rem; }
+    #date { font-size: 0.82rem; }
+    .kiosk-card { padding: 12px 20px 14px; }
+    h1 { font-size: 1.65rem; }
+    .screen-hint { margin-bottom: 5px; font-size: 0.85rem; }
+    #pin-display { min-height: 26px; margin: 1px 0 4px; }
+    .keypad button { min-height: 45px; }
+    .modal-card { max-height: 94vh; padding: 12px; }
+    .modal-card h2 { font-size: 1.3rem; margin-bottom: 5px; }
+    .modal-card p { margin: 5px 0; font-size: 0.95rem; }
+    .usb-keypad button { min-height: 38px; }
+    .usb-pin-display { min-height: 24px; margin: 1px 0 4px; }
+    #usb-message { min-height: 2.5em; font-size: 0.85rem; }
+}
+
+
+/* Reference terminal: 480x800 portrait */
+@media (max-width: 520px) and (min-height: 700px) {
+    .screen {
+        width: 100%;
+        min-height: 100dvh;
+        padding: 20px 26px 22px;
+    }
+
+    .kiosk-header {
+        width: 100%;
+        min-height: 94px;
+        margin: 0 auto 28px;
+        gap: 14px;
+    }
+
+    .brand-logo {
+        width: 120px;
+        flex: 0 0 auto;
+    }
+
+    .datetime {
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    #clock {
+        font-size: 2.15rem;
+    }
+
+    #date {
+        max-width: 170px;
+        margin-left: auto;
+        margin-top: 7px;
+        font-size: 0.88rem;
+        line-height: 1.25;
+    }
+
+    .kiosk-card {
+        width: 100%;
+        max-width: 410px;
+        margin-left: auto;
+        margin-right: auto;
+        padding: 24px 22px 26px;
+        border-radius: 20px;
+    }
+
+    h1 {
+        font-size: 1.8rem;
+    }
+
+    .screen-hint {
+        max-width: 320px;
+        margin: 7px auto 16px;
+        font-size: 0.92rem;
+        line-height: 1.35;
+    }
+
+    #pin-display {
+        min-height: 40px;
+        margin: 0 0 12px;
+        font-size: 1.65rem;
+    }
+
+    .keypad {
+        gap: 10px;
+    }
+
+    .keypad button {
+        min-height: 66px;
+        font-size: 1.45rem;
+        border-radius: 13px;
+    }
+
+    .punch-actions {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        margin-top: 24px;
+    }
+
+    .punch-actions button {
+        min-height: 72px;
+        font-size: 1.15rem;
+    }
+
+    .secondary-action {
+        min-height: 52px;
+        margin-top: 14px;
+    }
+
+    #punch-message {
+        margin-top: 20px;
+    }
+
+    #incident-confirmation button {
+        min-height: 56px;
+    }
+
+    .modal {
+        padding: 16px;
+    }
+
+    .modal-card {
+        width: 100%;
+        max-height: calc(100dvh - 32px);
+        padding: 20px;
+    }
+
+    .usb-keypad {
+        gap: 8px;
+    }
+
+    .usb-keypad button {
+        min-height: 52px;
+        font-size: 1.2rem;
+    }
+
+    .modal-actions button {
+        min-height: 52px;
+    }
+}

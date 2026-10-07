@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 330" role="img" aria-labelledby="title">
+  <title id="title">TimeClockPi</title>
+  <circle cx="180" cy="140" r="100" fill="#ffffff" stroke="#171717" stroke-width="8"/>
+  <g stroke="#171717" stroke-width="8" stroke-linecap="round" fill="none">
+    <path d="M180 140V80"/>
+    <path d="M180 140l42 28"/>
+  </g>
+  <circle cx="180" cy="140" r="8" fill="#171717"/>
+  <circle cx="290" cy="50" r="23" fill="#f5c84c"/>
+  <text x="180" y="305" fill="#171717" text-anchor="middle" font-family="Arial, sans-serif" font-size="40" font-weight="700">TimeClockPi</text>
+</svg>
