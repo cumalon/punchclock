@@ -1,4 +1,5 @@
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+const isSupervisor = document.querySelector('meta[name="user-role"]').content === "supervisor";
 
 function adminHeaders(headers = {}) {
     return {...headers, "X-CSRF-Token": csrfToken};
@@ -97,9 +98,11 @@ form.addEventListener("submit", async event => {
     }
 });
 
-loadEmployees().catch(() => {
-    employees.textContent = "No s'han pogut carregar els empleats";
-});
+if (!isSupervisor) {
+    loadEmployees().catch(() => {
+        employees.textContent = "No s'han pogut carregar els empleats";
+    });
+}
 
 
 const employeesSection = document.getElementById("employees-section");
@@ -134,6 +137,8 @@ function showSection(section) {
     punchesSection.classList.toggle("hidden", section !== "punches");
     settingsSection.classList.toggle("hidden", section !== "settings");
     backupsSection.classList.toggle("hidden", section !== "backups");
+    const usersSection = document.getElementById("users-section");
+    if (usersSection) usersSection.classList.toggle("hidden", section !== "users");
 
     document.querySelectorAll("[data-section]").forEach(link => {
         link.classList.toggle("active", link.dataset.section === section);
@@ -143,6 +148,7 @@ function showSection(section) {
 
     if (section === "punches") loadPunches();
     if (section === "settings") loadSettings();
+    if (section === "users") loadWebUsers();
     if (section === "backups") {
         loadBackups();
         startBackupUsbPolling();
@@ -871,6 +877,58 @@ function pollRestoreStatus() {
     }, 1500);
 }
 
+if (!isSupervisor) {
+    document.getElementById("new-web-user").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const response = await fetch("/api/admin/users", {
+            method: "POST",
+            headers: adminHeaders({"Content-Type": "application/json"}),
+            body: JSON.stringify({
+                username: document.getElementById("web-username").value,
+                password: document.getElementById("web-password").value,
+                role: document.getElementById("web-role").value,
+            }),
+        });
+        const data = await response.json();
+        document.getElementById("web-user-message").textContent = data.ok ? "Usuari creat" : data.error;
+        if (data.ok) {
+            event.target.reset();
+            loadWebUsers();
+        }
+    });
+}
+
+async function loadWebUsers() {
+    const response = await fetch("/api/admin/users");
+    const data = await response.json();
+    const container = document.getElementById("web-users");
+    container.replaceChildren();
+    for (const user of data.users) {
+        const row = document.createElement("div");
+        row.className = "employee";
+        const label = document.createElement("span");
+        label.textContent = user.username + " (" + (user.role === "admin" ? "Administrador" : "Supervisor") + ")";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = user.active ? "Desactivar" : "Activar";
+        button.addEventListener("click", async () => {
+            const result = await fetch("/api/admin/users/" + user.id, {
+                method: "PATCH",
+                headers: adminHeaders({"Content-Type": "application/json"}),
+                body: JSON.stringify({active: !user.active}),
+            });
+            const payload = await result.json();
+            if (!payload.ok) {
+                document.getElementById("web-user-message").textContent = payload.error;
+            } else {
+                loadWebUsers();
+            }
+        });
+        row.append(label, button);
+        container.appendChild(row);
+    }
+}
+
 showSectionFromHash();
 
 async function loadLogoStatus() {
@@ -904,7 +962,7 @@ async function changeLogo(request) {
     } catch {
         message.textContent = "Error de connexió";
     }
-    loadLogoStatus();
+    if (!isSupervisor) loadLogoStatus();
 }
 
 document.getElementById("upload-logo").addEventListener("click", () => {
