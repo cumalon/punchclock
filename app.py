@@ -24,6 +24,10 @@ from timeclock.database import (
     find_employee_by_pin,
     get_settings,
     get_active_admin_session_version,
+    get_active_admin_identity,
+    create_admin_user,
+    list_admin_users,
+    set_admin_user_active,
     init_database,
     list_employees,
     list_punches,
@@ -347,11 +351,13 @@ def admin_remove_logo():
 
 @app.route("/admin")
 def admin():
-    if "admin_user_id" not in session:
+    identity = get_active_admin_identity(session["admin_user_id"]) if "admin_user_id" in session else None
+    if identity is None or identity["updated_at"] != session.get("admin_session_version"):
+        session.clear()
         return redirect(url_for("admin_login_page"))
     if "csrf_token" not in session:
         session["csrf_token"] = secrets.token_urlsafe(32)
-    return render_template("admin.html", csrf_token=session["csrf_token"])
+    return render_template("admin.html", csrf_token=session["csrf_token"], role=identity["role"])
 
 
 @app.get("/admin/login")
@@ -375,11 +381,13 @@ def admin_login():
     session.permanent = True
     session["admin_user_id"] = admin_user["id"]
     session["admin_username"] = admin_user["username"]
+    session["admin_role"] = admin_user["role"]
     session["admin_session_version"] = admin_user["updated_at"]
     session["csrf_token"] = secrets.token_urlsafe(32)
     return jsonify({
         "ok": True,
         "username": admin_user["username"],
+        "role": admin_user["role"],
         "csrf_token": session["csrf_token"],
     })
 
@@ -390,22 +398,33 @@ def admin_logout():
     return jsonify({"ok": True})
 
 
+SUPERVISOR_ENDPOINTS = {
+    "admin_punches", "admin_export_csv", "admin_timeline",
+    "admin_correct_punch", "admin_review_punch_incident",
+    "admin_punch_incident_reviews", "admin_punch_corrections",
+    "admin_employees", "admin_change_password",
+}
+
+
 @app.before_request
 def require_admin_authentication():
     if request.path.startswith("/api/admin/") and request.endpoint != "admin_login":
         if "admin_user_id" not in session:
             return jsonify({"ok": False, "error": "Autenticació requerida"}), 401
 
-        current_version = get_active_admin_session_version(session["admin_user_id"])
+        identity = get_active_admin_identity(session["admin_user_id"])
         if (
-            current_version is None
-            or current_version != session.get("admin_session_version")
+            identity is None
+            or identity["updated_at"] != session.get("admin_session_version")
         ):
             session.clear()
             return jsonify({
                 "ok": False,
                 "error": "La sessió d'administrador ja no és vàlida. Torna a iniciar sessió",
             }), 401
+
+        if identity["role"] == "supervisor" and request.endpoint not in SUPERVISOR_ENDPOINTS:
+            return jsonify({"ok": False, "error": "Accés reservat a l'administrador"}), 403
 
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             csrf_token = request.headers.get("X-CSRF-Token", "")
@@ -446,6 +465,40 @@ def admin_change_password():
         return jsonify({"ok": False, "error": str(error)}), 400
 
     session.clear()
+    return jsonify({"ok": True})
+
+
+@app.get("/api/admin/users")
+def admin_users():
+    return jsonify({"ok": True, "users": list_admin_users()})
+
+
+@app.post("/api/admin/users")
+def admin_create_user():
+    data = request.get_json(silent=True) or {}
+    try:
+        user_id = create_admin_user(
+            data.get("username", ""), data.get("password", ""),
+            role=data.get("role", "supervisor"),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True, "id": user_id}), 201
+
+
+@app.patch("/api/admin/users/<int:user_id>")
+def admin_set_user_active(user_id):
+    users = list_admin_users()
+    target = next((user for user in users if user["id"] == user_id), None)
+    if target is None:
+        return jsonify({"ok": False, "error": "Usuari no trobat"}), 404
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data.get("active"), bool):
+        return jsonify({"ok": False, "error": "Estat no vàlid"}), 400
+    try:
+        set_admin_user_active(target["username"], data["active"])
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
     return jsonify({"ok": True})
 
 
