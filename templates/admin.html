@@ -5,29 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>TimeClockPi - Administració</title>
     <meta name="csrf-token" content="{{ csrf_token }}">
+    <meta name="user-role" content="{{ role }}">
     <link rel="stylesheet" href="/static/admin.css?v=6.18">
 </head>
 <body>
     <div class="admin-layout">
         <aside class="sidebar">
-            <div class="brand"><img src="/branding/logo" alt="TimeClockPi"><span>Administració</span></div>
+            <div class="brand"><img src="/branding/logo" alt="TimeClockPi"><span>{{ 'Administració' if role == 'admin' else 'Supervisió' }}</span></div>
             <nav>
                 <a href="#fitxatges" data-section="punches">Fitxatges</a>
-                <a class="active" href="#treballadors" data-section="employees">Treballadors</a>
+                {% if role == 'admin' %}<a class="active" href="#treballadors" data-section="employees">Treballadors</a>{% endif %}
                 <span class="nav-separator" aria-hidden="true"></span>
+                {% if role == 'admin' %}
+                <a href="#usuaris" data-section="users">Usuaris web</a>
                 <a href="#copies" data-section="backups">Còpies de seguretat</a>
                 <a href="#configuracio" data-section="settings">Configuració</a>
+                {% endif %}
             </nav>
             <button id="logout-button" type="button">Tancar sessió</button>
         </aside>
 
         <main class="content">
-            <header class="page-header">
+            <header class="page-header{% if role == 'supervisor' %} hidden{% endif %}">
                 <h1>Gestió de treballadors</h1>
                 <p>Altes, baixes i credencials d'accés.</p>
             </header>
 
-            <div id="employees-section">
+            <div id="employees-section"{% if role == 'supervisor' %} class="hidden"{% endif %}>
             <section class="panel">
                 <h2>Nou treballador</h2>
                 <form id="new-employee">
@@ -112,6 +116,23 @@
                     <div id="punch-correction-history"></div>
                 </section>
             </div>
+
+            {% if role == 'admin' %}
+            <div id="users-section" class="hidden">
+                <header class="section-header"><h1>Usuaris web</h1><p>Administradors i supervisors.</p></header>
+                <section class="panel">
+                    <h2>Crear usuari</h2>
+                    <form id="new-web-user">
+                        <label>Nom d'usuari <input id="web-username" required></label>
+                        <label>Contrasenya <input id="web-password" type="password" minlength="12" required></label>
+                        <label>Rol <select id="web-role"><option value="supervisor">Supervisor</option><option value="admin">Administrador</option></select></label>
+                        <button type="submit">Crear usuari</button>
+                    </form>
+                    <p id="web-user-message"></p>
+                </section>
+                <section class="panel"><h2>Usuaris</h2><div id="web-users"></div></section>
+            </div>
+            {% endif %}
 
             <div id="backups-section" class="hidden">
                 <header class="section-header">
@@ -219,6 +240,6 @@
             </div>
         </main>
     </div>
-    <script src="/static/admin.js?v=6.12"></script>
+    <script src="/static/admin.js?v=6.13"></script>
 </body>
 </html>
