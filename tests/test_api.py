@@ -718,3 +718,52 @@ def test_apply_restore_does_not_write_to_root_owned_status_directory(
 
     assert response.status_code == 202
     assert status_file.read_text(encoding="utf-8") == "success\n"
+
+
+def test_supervisor_permissions_and_admin_user_management(client):
+    import timeclock.database as database
+    created = client.post("/api/admin/login", json={"username": "admin", "password": "test-administrator-password"})
+    csrf = {"X-CSRF-Token": created.get_json()["csrf_token"]}
+    response = client.post("/api/admin/users", headers=csrf, json={
+        "username": "supervisor1", "password": "supervisor-password-123", "role": "supervisor",
+    })
+    assert response.status_code == 201
+    supervisor_id = response.get_json()["id"]
+    assert client.get("/api/admin/users").get_json()["users"][-1]["role"] == "supervisor"
+    client.post("/api/admin/logout", headers=csrf)
+    login = client.post("/api/admin/login", json={
+        "username": "supervisor1", "password": "supervisor-password-123",
+    })
+    assert login.status_code == 200
+    assert login.get_json()["role"] == "supervisor"
+    csrf = {"X-CSRF-Token": login.get_json()["csrf_token"]}
+    assert client.get("/api/admin/punches").status_code == 200
+    assert client.get("/api/admin/timeline").status_code == 200
+    assert client.get("/api/admin/export.csv").status_code == 200
+    assert client.get("/api/admin/employees").status_code == 200
+    assert client.get("/api/admin/settings").status_code == 403
+    assert client.get("/api/admin/users").status_code == 403
+    assert client.get("/api/admin/usb/backups").status_code == 403
+    assert client.get("/api/admin/logo").status_code == 403
+    assert client.post("/api/admin/employees", headers=csrf, json={"name": "No", "pin": "1234"}).status_code == 403
+    assert client.put("/api/admin/settings", headers=csrf, json={}).status_code == 403
+    assert client.get("/admin").status_code == 200
+    html = client.get("/admin").get_data(as_text=True)
+    assert 'data-section="backups"' not in html
+    assert 'data-section="users"' not in html
+    assert 'data-section="punches"' in html
+    assert 'name="user-role" content="supervisor"' in html
+    assert client.patch("/api/admin/users/" + str(supervisor_id), headers=csrf, json={"active": False}).status_code == 403
+
+
+def test_existing_admin_roles_and_last_admin_guard(client):
+    import timeclock.database as database
+    with database.get_connection() as db:
+        row = db.execute("SELECT role FROM admin_user WHERE username = 'admin'").fetchone()
+        assert row["role"] == "admin"
+    database.create_admin_user("supervisor2", "supervisor-password-123", role="supervisor")
+    import pytest
+    with pytest.raises(ValueError, match="últim administrador"):
+        database.set_admin_user_active("admin", False)
+    with pytest.raises(ValueError, match="Rol no vàlid"):
+        database.create_admin_user("bad-role", "supervisor-password-123", role="other")
