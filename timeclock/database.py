@@ -103,6 +103,7 @@ def init_database():
                 password_hash TEXT NOT NULL,
                 pin_hash TEXT,
                 active INTEGER NOT NULL DEFAULT 1,
+                role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('admin', 'supervisor')),
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -138,6 +139,10 @@ def init_database():
         admin_columns = {row["name"] for row in db.execute("PRAGMA table_info(admin_user)").fetchall()}
         if "pin_hash" not in admin_columns:
             db.execute("ALTER TABLE admin_user ADD COLUMN pin_hash TEXT")
+
+        admin_columns = {row["name"] for row in db.execute("PRAGMA table_info(admin_user)").fetchall()}
+        if "role" not in admin_columns:
+            db.execute("ALTER TABLE admin_user ADD COLUMN role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('admin', 'supervisor'))")
 
         review_columns = {row["name"] for row in db.execute("PRAGMA table_info(punch_incident_review)").fetchall()}
         review_indexes = db.execute("PRAGMA index_list(punch_incident_review)").fetchall()
@@ -529,11 +534,13 @@ def list_terminal_events(date_from=None, date_to=None):
     return [dict(row) for row in rows]
 
 
-def create_admin_user(username, password):
+def create_admin_user(username, password, role='admin'):
     username = str(username).strip()
     password = str(password)
     if not username:
         raise ValueError("El nom d'usuari és obligatori")
+    if role not in ('admin', 'supervisor'):
+        raise ValueError('Rol no vàlid')
     if len(password) < 12:
         raise ValueError("La contrasenya ha de tenir com a mínim 12 caràcters")
     timestamp = datetime.now(ZoneInfo("Europe/Madrid")).isoformat(timespec="seconds")
@@ -541,10 +548,10 @@ def create_admin_user(username, password):
     with get_connection() as db:
         existing = db.execute("SELECT id FROM admin_user WHERE username = ? COLLATE NOCASE", (username,)).fetchone()
         if existing is not None:
-            raise ValueError("Aquest usuari administrador ja existeix")
+            raise ValueError("Aquest usuari ja existeix")
         cursor = db.execute(
-            "INSERT INTO admin_user (username, password_hash, active, created_at, updated_at) VALUES (?, ?, 1, ?, ?)",
-            (username, password_hash, timestamp, timestamp),
+            "INSERT INTO admin_user (username, password_hash, active, role, created_at, updated_at) VALUES (?, ?, 1, ?, ?, ?)",
+            (username, password_hash, role, timestamp, timestamp),
         )
     return cursor.lastrowid
 
@@ -556,12 +563,21 @@ def authenticate_admin(username, password):
         return None
     with get_connection() as db:
         row = db.execute(
-            "SELECT id, username, password_hash, updated_at FROM admin_user WHERE username = ? COLLATE NOCASE AND active = 1",
+            "SELECT id, username, password_hash, role, updated_at FROM admin_user WHERE username = ? COLLATE NOCASE AND active = 1",
             (username,),
         ).fetchone()
     if row is None or not check_password_hash(row["password_hash"], password):
         return None
-    return {"id": row["id"], "username": row["username"], "updated_at": row["updated_at"]}
+    return {"id": row["id"], "username": row["username"], "role": row["role"], "updated_at": row["updated_at"]}
+
+
+def get_active_admin_identity(admin_user_id):
+    with get_connection() as db:
+        row = db.execute(
+            "SELECT id, role, updated_at FROM admin_user WHERE id = ? AND active = 1",
+            (admin_user_id,),
+        ).fetchone()
+    return None if row is None else dict(row)
 
 
 def get_active_admin_session_version(admin_user_id):
@@ -673,7 +689,7 @@ def reset_admin_password(username, new_password):
 def list_admin_users():
     with get_connection() as db:
         rows = db.execute(
-            "SELECT id, username, active, created_at, updated_at FROM admin_user ORDER BY username COLLATE NOCASE"
+            "SELECT id, username, role, active, created_at, updated_at FROM admin_user ORDER BY username COLLATE NOCASE"
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -685,15 +701,15 @@ def set_admin_user_active(username, active):
 
     with get_connection() as db:
         row = db.execute(
-            "SELECT id, active FROM admin_user WHERE username = ? COLLATE NOCASE",
+            "SELECT id, active, role FROM admin_user WHERE username = ? COLLATE NOCASE",
             (username,),
         ).fetchone()
         if row is None:
             raise ValueError("Administrador no trobat")
 
-        if not active and row["active"]:
+        if not active and row["active"] and row["role"] == 'admin':
             count = db.execute(
-                "SELECT COUNT(*) AS count FROM admin_user WHERE active = 1"
+                "SELECT COUNT(*) AS count FROM admin_user WHERE active = 1 AND role = 'admin'"
             ).fetchone()["count"]
             if count <= 1:
                 raise ValueError("No es pot desactivar l'últim administrador actiu")
