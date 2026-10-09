@@ -133,6 +133,7 @@ function setActionButton(button, icon, label) {
 }
 
 function showSection(section) {
+    if (isSupervisor && section !== "punches") section = "punches";
     employeesSection.classList.toggle("hidden", section !== "employees");
     punchesSection.classList.toggle("hidden", section !== "punches");
     settingsSection.classList.toggle("hidden", section !== "settings");
@@ -261,7 +262,7 @@ const sectionByHash = {
 };
 
 function showSectionFromHash() {
-    showSection(sectionByHash[location.hash] || "employees");
+    showSection(sectionByHash[location.hash] || (isSupervisor ? "punches" : "employees"));
 }
 
 document.querySelectorAll("[data-section]").forEach(link => {
