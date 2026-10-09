@@ -68,3 +68,7 @@ Backup creation, verification and restore/rollback are available through the aut
 The repository contains only the generic `static/default-logo.svg`. An administrator can upload or remove an installation-specific PNG or JPEG logo from Web Admin. The custom file is stored under `TIMECLOCKPI_DATA_DIR/branding/`, outside Git, so source updates and reinstalls do not replace installation branding.
 
 The initial production deployment now uses the `punch` account, a Git checkout at `/home/punch/timeclockpi`, persistent data under `/var/lib/timeclockpi`, bounded technical logging and versioned systemd/kiosk/USB deployment files. Full kiosk boot, startup-event recording, USB punch export and web backup/restore have been validated on the reference terminal. Remaining production-robustness work includes operational update/reinstall procedures, time validation, peripheral-error handling and evaluation of controlled local maintenance access.
+
+## Install on a new Raspberry Pi
+
+For a clean installation, including preparation of the `punch` kiosk account, the required checkout path, installer execution from a system administrator account, and first web administrator creation, follow the [clean installation guide](docs/deployment.md#clean-installation-on-a-new-raspberry-pi). The validated reference deployment uses fixed paths and Raspberry Pi OS Lite (32-bit).
