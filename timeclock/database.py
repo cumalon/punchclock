@@ -1141,3 +1141,66 @@ def start_employee_leave(employee_id, leave_type_id, punch_type, method="pin",
             "punch_type": punch_type, "incident": int(unexpected),
             "record_state": "needs_regularization" if punch_type == "entrada" else "open",
         }
+
+
+def finish_employee_leave(employee_id, method="pin", confirm_incident=False, now=None):
+    """Tanca un permís temporal i desa l'entrada de retorn atòmicament."""
+    if method != "pin":
+        raise ValueError("Mètode de registre no vàlid")
+    now = now or datetime.now(LOCAL_TIMEZONE)
+    timestamp = now.astimezone(LOCAL_TIMEZONE).isoformat(timespec="seconds")
+
+    with get_connection() as db:
+        employee = db.execute(
+            "SELECT id FROM employee WHERE id = ? AND active = 1", (employee_id,)
+        ).fetchone()
+        if employee is None:
+            raise ValueError("Treballador no trobat o inactiu")
+        leave = db.execute("""
+            SELECT el.*, lt.approval_policy, lt.auto_approve_minutes
+            FROM employee_leave el JOIN leave_type lt ON lt.id = el.leave_type_id
+            WHERE el.employee_id = ? AND el.record_state = 'open'
+            ORDER BY el.id DESC LIMIT 1
+        """, (employee_id,)).fetchone()
+        if leave is None:
+            raise ValueError("No hi ha cap permís obert")
+        start = parse_local_timestamp(leave["started_at"]).astimezone(timezone.utc)
+        end = now.astimezone(timezone.utc)
+        if end < start:
+            raise ValueError("El retorn no pot ser anterior a l'inici del permís")
+
+        last = db.execute("""
+            SELECT type FROM punch WHERE employee_id = ?
+            ORDER BY utc_timestamp_sort_key(timestamp) DESC, id DESC LIMIT 1
+        """, (employee_id,)).fetchone()
+        unexpected = last is None or last["type"] == "entrada"
+        note = "Entrada consecutiva confirmada pel treballador" if unexpected else ""
+        if unexpected and not confirm_incident:
+            return {"ok": False, "confirmation_required": True, "error": note}
+
+        duration_seconds = (end - start).total_seconds()
+        auto_approve = (
+            not unexpected and not leave["requires_supervisor"]
+            and (
+                leave["approval_policy"] == "automatic"
+                or (leave["approval_policy"] == "threshold"
+                    and duration_seconds <= leave["auto_approve_minutes"] * 60)
+            )
+        )
+        status = "approved" if auto_approve else "pending"
+        punch = db.execute("""
+            INSERT INTO punch (employee_id, timestamp, type, method, incident, note)
+            VALUES (?, ?, 'entrada', ?, ?, ?)
+        """, (employee_id, timestamp, method, int(unexpected), note))
+        db.execute("""
+            UPDATE employee_leave
+            SET ended_at = ?, end_punch_id = ?, record_state = 'finished',
+                status = ?, requires_supervisor = ?
+            WHERE id = ?
+        """, (timestamp, punch.lastrowid, status,
+              int(bool(leave["requires_supervisor"] or unexpected)), leave["id"]))
+        return {
+            "ok": True, "leave_id": leave["id"], "punch_id": punch.lastrowid,
+            "timestamp": timestamp, "duration_seconds": duration_seconds,
+            "status": status, "incident": int(unexpected),
+        }
