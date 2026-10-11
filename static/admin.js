@@ -926,7 +926,39 @@ async function loadWebUsers() {
                 loadWebUsers();
             }
         });
-        row.append(label, button);
+        const passwordButton = document.createElement("button");
+        passwordButton.type = "button";
+        passwordButton.textContent = "Contrasenya temporal";
+        passwordButton.addEventListener("click", async () => {
+            const password = window.prompt("Nova contrasenya temporal (mínim 12 caràcters):");
+            if (password === null) return;
+            const response = await fetch("/api/admin/users/" + user.id + "/temporary-password", {
+                method: "POST",
+                headers: adminHeaders({"Content-Type": "application/json"}),
+                body: JSON.stringify({password}),
+            });
+            const result = await response.json();
+            document.getElementById("web-user-message").textContent =
+                result.ok ? "Contrasenya temporal desada. Caldrà canviar-la al proper inici de sessió." : result.error;
+            if (result.ok) loadWebUsers();
+        });
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.textContent = "Eliminar";
+        deleteButton.disabled = Boolean(user.active);
+        deleteButton.addEventListener("click", async () => {
+            if (!window.confirm("Eliminar definitivament l'usuari " + user.username + "?")) return;
+            const response = await fetch("/api/admin/users/" + user.id, {
+                method: "DELETE",
+                headers: adminHeaders(),
+            });
+            const result = await response.json();
+            document.getElementById("web-user-message").textContent = result.ok ? "Usuari eliminat" : result.error;
+            if (result.ok) loadWebUsers();
+        });
+        const pending = document.createElement("span");
+        pending.textContent = user.must_change_password ? "Canvi de contrasenya pendent" : "";
+        row.append(label, button, passwordButton, deleteButton, pending);
         container.appendChild(row);
     }
 }
