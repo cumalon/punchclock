@@ -560,6 +560,48 @@ def admin_delete_user(user_id):
     return jsonify({"ok": True})
 
 
+@app.get("/api/admin/leave-types")
+def admin_leave_types():
+    return jsonify({"ok": True, "leave_types": database.list_leave_types()})
+
+
+@app.post("/api/admin/leave-types")
+def admin_create_leave_type():
+    data = request.get_json(silent=True) or {}
+    try:
+        type_id = database.create_leave_type(
+            data.get("name"), data.get("approval_policy", "manual"),
+            data.get("max_minutes"), data.get("auto_approve_minutes"),
+            data.get("active", True),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True, "id": type_id}), 201
+
+
+@app.put("/api/admin/leave-types/<int:type_id>")
+def admin_update_leave_type(type_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        database.update_leave_type(
+            type_id, data.get("name"), data.get("approval_policy", "manual"),
+            data.get("max_minutes"), data.get("auto_approve_minutes"),
+            data.get("active", True),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/admin/leave-types/<int:type_id>")
+def admin_delete_leave_type(type_id):
+    try:
+        database.delete_leave_type(type_id)
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True})
+
+
 @app.get("/api/admin/settings")
 def admin_settings():
     return jsonify({
