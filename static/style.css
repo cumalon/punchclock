@@ -485,3 +485,14 @@ p { font-size: 1.2rem; }
     font-weight: 800;
 }
 #leave-finish-register:disabled { opacity: 0.65; }
+
+#ordinary-leave-return-screen button:not(.secondary-action) {
+    display: block;
+    width: 100%;
+    min-height: 72px;
+    margin: 18px 0;
+    padding: 12px;
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+#ordinary-leave-now:disabled { opacity: .4; }
