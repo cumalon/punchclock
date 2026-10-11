@@ -1275,6 +1275,25 @@ def punch():
     if identification is None:
         return jsonify({"ok": False, "error": "Identificació no vàlida o caducada"}), 401
 
+    context = database.get_employee_leave_context(identification["employee_id"])
+    if context is not None and context["open_leave"] is not None:
+        return_choice = data.get("return_choice")
+        if return_choice not in (None, "now", "earlier"):
+            return jsonify({"ok": False, "error": "Opció de retorn no vàlida"}), 400
+        try:
+            result = database.punch_with_open_leave(
+                identification["employee_id"], punch_type,
+                return_choice=return_choice,
+                confirm_incident=data.get("confirm_incident") is True,
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
+        if not result["ok"]:
+            identification["expires_at"] = time.monotonic() + IDENTIFICATION_TTL_SECONDS
+            return jsonify(result), 409
+        identification_tokens.pop(token, None)
+        return jsonify(result)
+
     result = create_punch(
         identification["employee_id"], punch_type, identification["method"],
         confirm_incident=confirm_incident
