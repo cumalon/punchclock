@@ -11,7 +11,8 @@ let usbAdminPin = "";
 const pinScreen = document.getElementById("pin-screen");
 const punchScreen = document.getElementById("punch-screen");
 const leaveScreen = document.getElementById("leave-screen");
-const leaveOptionsList = document.getElementById("leave-options-list");
+const leaveOptionsSelect = document.getElementById("leave-options-select");
+const continueLeaveOptions = document.getElementById("continue-leave-options");
 const leaveOptionsMessage = document.getElementById("leave-options-message");
 const pinKeypad = document.querySelector(".keypad");
 const display = document.getElementById("pin-display");
@@ -104,7 +105,9 @@ function showPinScreen() {
 
     punchScreen.classList.add("hidden");
     leaveScreen.classList.add("hidden");
-    leaveOptionsList.replaceChildren();
+    leaveOptionsSelect.replaceChildren(new Option("Selecciona un permís", ""));
+    leaveOptionsSelect.disabled = true;
+    continueLeaveOptions.disabled = true;
     pinScreen.classList.remove("hidden");
 }
 
@@ -399,12 +402,9 @@ async function showLeaveOptions() {
         }
         leaveOptionsMessage.textContent = "Selecciona un tipus de permís (consulta de prova)";
         for (const kind of data.leave_types) {
-            const button = document.createElement("button");
-            button.type = "button";
-            button.textContent = kind.name;
-            button.disabled = true;
-            leaveOptionsList.append(button);
+            leaveOptionsSelect.add(new Option(kind.name, String(kind.id)));
         }
+        leaveOptionsSelect.disabled = false;
     } catch {
         leaveOptionsMessage.textContent = "Error de connexió";
     }
@@ -414,4 +414,13 @@ document.getElementById("show-leave-options").addEventListener("click", showLeav
 document.getElementById("cancel-leave-options").addEventListener("click", () => {
     leaveScreen.classList.add("hidden");
     punchScreen.classList.remove("hidden");
+});
+
+leaveOptionsSelect.addEventListener("change", () => {
+    continueLeaveOptions.disabled = !leaveOptionsSelect.value;
+});
+continueLeaveOptions.addEventListener("click", () => {
+    if (!leaveOptionsSelect.value) return;
+    leaveOptionsMessage.textContent = "Permís seleccionat: " +
+        leaveOptionsSelect.selectedOptions[0].textContent + ". Registre encara no activat.";
 });
