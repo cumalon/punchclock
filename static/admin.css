@@ -1059,10 +1059,10 @@ input[type="checkbox"] {
 #leave-types-list { display: grid; gap: 12px; }
 .leave-type-row {
     display: grid;
-    grid-template-columns: 34px minmax(220px, 1.7fr) minmax(220px, 1.45fr) minmax(105px, .6fr) minmax(105px, .6fr) 74px;
-    gap: 10px 12px;
+    grid-template-columns: 30px minmax(180px, 1.5fr) minmax(210px, 1.3fr) minmax(78px, .5fr) minmax(78px, .5fr) 70px 174px;
+    gap: 8px;
     align-items: center;
-    padding: 14px;
+    padding: 12px;
     border: 1px solid var(--line);
     border-radius: 12px;
     background: var(--surface);
@@ -1096,7 +1096,7 @@ input[type="checkbox"] {
 }
 .leave-type-active input { width: 17px; min-height: 17px; height: 17px; margin: 0; }
 .leave-type-actions {
-    grid-column: 2 / -1;
+    grid-column: 7;
     display: flex;
     justify-content: flex-end;
     align-items: center;
@@ -1106,10 +1106,17 @@ input[type="checkbox"] {
 .leave-type-status { grid-column: 2 / -1; font-size: .85rem; color: var(--muted); }
 .leave-type-status:empty { display: none; }
 .leave-type-row [hidden] { display: none !important; }
-@media (max-width: 1150px) {
+@media (max-width: 1250px) {
     .leave-type-row {
-        grid-template-columns: 34px minmax(170px, 1fr) minmax(190px, 1fr) minmax(95px, .6fr) minmax(95px, .6fr);
+        grid-template-columns: 30px minmax(155px, 1.4fr) minmax(185px, 1.3fr) minmax(70px, .5fr) minmax(70px, .5fr) 66px 160px;
+        gap: 6px;
+        padding: 10px;
     }
+    .leave-type-actions { grid-column: 7; gap: 4px; }
+    .leave-type-actions button { padding: 7px 8px; font-size: .84rem; }
+}
+@media (max-width: 1050px) {
+    .leave-type-row { grid-template-columns: 30px minmax(0, 1.4fr) minmax(0, 1.3fr) minmax(75px, .6fr) minmax(75px, .6fr); }
     .leave-type-active { grid-column: 2; }
     .leave-type-actions { grid-column: 3 / -1; }
 }
