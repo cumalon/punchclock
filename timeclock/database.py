@@ -1229,3 +1229,37 @@ def defer_employee_leave_return(employee_id):
         """, (leave["id"],))
         return {"ok": True, "leave_id": leave["id"],
                 "record_state": "needs_regularization", "status": "pending"}
+
+
+def punch_with_open_leave(employee_id, punch_type, return_choice=None,
+                          confirm_incident=False, now=None):
+    """Coordina una entrada ordinària amb el permís temporal obert.
+
+    'now' reutilitza l'entrada de retorn: no duplica el fitxatge.
+    'earlier' només marca la regularització; el fitxatge ordinari
+    es farà en una operació posterior, després de confirmar-ne el tipus.
+    """
+    if punch_type not in ("entrada", "sortida"):
+        raise ValueError("Tipus de fitxatge no vàlid")
+    context = get_employee_leave_context(employee_id, now=now)
+    if context is None:
+        raise ValueError("Treballador no trobat o inactiu")
+    if context["open_leave"] is None:
+        raise ValueError("No hi ha cap permís obert")
+    if return_choice not in ("now", "earlier"):
+        return {"ok": False, "return_choice_required": True,
+                "leave": context["open_leave"]}
+    if return_choice == "earlier":
+        result = defer_employee_leave_return(employee_id)
+        return {**result, "ordinary_punch_required": True,
+                "requested_punch_type": punch_type}
+    if punch_type != "entrada":
+        return {"ok": False, "return_entry_required": True,
+                "error": "Cal registrar primer l'entrada de retorn"}
+    result = finish_employee_leave(
+        employee_id, confirm_incident=confirm_incident, now=now
+    )
+    if not result["ok"]:
+        return result
+    return {**result, "ordinary_punch_required": False,
+            "punch_reused_as_return": True}
