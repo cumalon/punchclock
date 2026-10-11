@@ -767,3 +767,46 @@ def test_existing_admin_roles_and_last_admin_guard(client):
         database.set_admin_user_active("admin", False)
     with pytest.raises(ValueError, match="Rol no vàlid"):
         database.create_admin_user("bad-role", "supervisor-password-123", role="other")
+
+def test_forced_password_change_blocks_access_until_completed(admin_client):
+    created = admin_client.post("/api/admin/users", json={
+        "username": "supervisor_forced", "password": "supervisor-password-123", "role": "supervisor",
+    })
+    user_id = created.get_json()["id"]
+    assert admin_client.post(f"/api/admin/users/{user_id}/temporary-password", json={
+        "password": "temporary-password-123",
+    }).status_code == 200
+    admin_client.post("/api/admin/logout")
+    login = admin_client.post("/api/admin/login", json={
+        "username": "supervisor_forced", "password": "temporary-password-123",
+    })
+    assert login.get_json()["must_change_password"] is True
+    assert admin_client.get("/admin").status_code == 302
+    assert admin_client.get("/admin/change-password").status_code == 200
+    assert admin_client.get("/api/admin/punches").status_code == 403
+    assert admin_client.post("/api/admin/complete-password-change", json={
+        "temporary_password": "temporary-password-123",
+        "new_password": "brand-new-password-123",
+        "confirmation": "brand-new-password-123",
+    }).status_code == 200
+    assert admin_client.get("/api/admin/punches").status_code == 401
+    assert admin_client.post("/api/admin/login", json={
+        "username": "supervisor_forced", "password": "temporary-password-123",
+    }).status_code == 401
+    login = admin_client.post("/api/admin/login", json={
+        "username": "supervisor_forced", "password": "brand-new-password-123",
+    })
+    assert login.status_code == 200
+    assert login.get_json()["must_change_password"] is False
+    assert admin_client.get("/api/admin/punches").status_code == 200
+
+
+def test_delete_user_only_when_inactive(admin_client):
+    created = admin_client.post("/api/admin/users", json={
+        "username": "delete_me", "password": "supervisor-password-123", "role": "supervisor",
+    })
+    user_id = created.get_json()["id"]
+    assert admin_client.delete(f"/api/admin/users/{user_id}").status_code == 400
+    assert admin_client.patch(f"/api/admin/users/{user_id}", json={"active": False}).status_code == 200
+    assert admin_client.delete(f"/api/admin/users/{user_id}").status_code == 200
+    assert admin_client.delete(f"/api/admin/users/{user_id}").status_code == 400
