@@ -1303,6 +1303,81 @@ function appendLeaveDetailLine(container, label, value) {
     container.appendChild(paragraph);
 }
 
+const leaveStateLabels = {
+    open: "Obert",
+    finished: "Finalitzat",
+    needs_regularization: "Pendent de regularització",
+    pending: "Pendent",
+    approved: "Aprovat",
+    rejected: "Rebutjat",
+    return: "Retorn oblidat",
+    late_arrival: "Arribada tardana",
+    early_departure: "Sortida anticipada"
+};
+
+function leaveLabel(value) {
+    return value == null ? "—" : (leaveStateLabels[value] || value);
+}
+
+function leaveDate(value) {
+    if (!value) return "—";
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("ca-ES");
+}
+
+function appendLeaveClassification(container, leave) {
+    if (leave.record_state !== "needs_regularization" ||
+        leave.status !== "pending" || leave.regularization_kind ||
+        !leave.punches.some(punch =>
+            punch.id === leave.start_punch_id && punch.type === "sortida")) return;
+
+    const heading = document.createElement("h3");
+    heading.textContent = "Classificar la sortida";
+    const explanation = document.createElement("p");
+    explanation.textContent = "Indica què va passar realment. Aquesta decisió determina quines hores es podran regularitzar.";
+    const label = document.createElement("label");
+    label.textContent = "Tipus de regularització ";
+    const select = document.createElement("select");
+    for (const [value, title] of [
+        ["", "Selecciona una opció"],
+        ["return", "Retorn oblidat"],
+        ["early_departure", "Sortida anticipada"]
+    ]) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = title;
+        select.appendChild(option);
+    }
+    label.appendChild(select);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Confirmar classificació";
+    button.disabled = true;
+    select.addEventListener("change", () => { button.disabled = !select.value; });
+    button.addEventListener("click", async () => {
+        if (!select.value || !confirm("Confirmes la classificació com a " +
+                leaveLabel(select.value).toLowerCase() + "?")) return;
+        button.disabled = true;
+        supervisionLeaveDetailMessage.textContent = "Desant classificació...";
+        try {
+            const response = await fetch("/api/admin/leaves/" + leave.id + "/classify", {
+                method: "POST",
+                headers: adminHeaders({"Content-Type": "application/json"}),
+                body: JSON.stringify({kind: select.value})
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) throw new Error(data.error || "No s'ha pogut classificar");
+            await loadSupervisionLeaveDetail(leave.id);
+            await loadSupervisionLeaves();
+            supervisionLeaveDetailMessage.textContent = "Classificació desada.";
+        } catch (error) {
+            supervisionLeaveDetailMessage.textContent = error.message;
+            button.disabled = false;
+        }
+    });
+    container.append(heading, explanation, label, button);
+}
+
 async function loadSupervisionLeaveDetail(leaveId) {
     supervisionLeaveDetail.classList.remove("hidden");
     supervisionLeaveDetailContent.replaceChildren();
@@ -1314,13 +1389,13 @@ async function loadSupervisionLeaveDetail(leaveId) {
         const leave = data.leave;
         appendLeaveDetailLine(supervisionLeaveDetailContent, "Treballador", leave.employee_name);
         appendLeaveDetailLine(supervisionLeaveDetailContent, "Tipus", leave.leave_type_name);
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Inici registrat", leave.started_at);
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Final registrat", leave.ended_at);
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Hora prevista d'entrada", leave.expected_started_at);
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Hora prevista de sortida", leave.expected_ended_at);
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Estat del registre", leave.record_state);
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Decisió", leave.status);
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Regularització", leave.regularization_kind);
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Inici registrat", leaveDate(leave.started_at));
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Final registrat", leaveDate(leave.ended_at));
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Hora prevista d'entrada", leaveDate(leave.expected_started_at));
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Hora prevista de sortida", leaveDate(leave.expected_ended_at));
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Estat del registre", leaveLabel(leave.record_state));
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Decisió", leaveLabel(leave.status));
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Regularització", leaveLabel(leave.regularization_kind));
         appendLeaveDetailLine(supervisionLeaveDetailContent, "Motiu de regularització", leave.regularization_reason);
         const punchHeading = document.createElement("h3");
         punchHeading.textContent = "Fitxatges vinculats";
@@ -1328,7 +1403,7 @@ async function loadSupervisionLeaveDetail(leaveId) {
         if (!leave.punches.length) appendLeaveDetailLine(supervisionLeaveDetailContent, "Fitxatges", "Cap");
         for (const punch of leave.punches) {
             appendLeaveDetailLine(supervisionLeaveDetailContent, "Fitxatge #" + punch.id,
-                punch.timestamp + " · " + punch.type + (punch.incident ? " · incidència" : ""));
+                leaveDate(punch.timestamp) + " · " + punch.type + (punch.incident ? " · incidència" : ""));
         }
         const historyHeading = document.createElement("h3");
         historyHeading.textContent = "Historial de decisions";
@@ -1337,10 +1412,11 @@ async function loadSupervisionLeaveDetail(leaveId) {
             appendLeaveDetailLine(supervisionLeaveDetailContent, "Historial", "Sense decisions manuals");
         }
         for (const item of leave.decision_history) {
-            appendLeaveDetailLine(supervisionLeaveDetailContent, item.changed_at,
-                item.previous_status + " → " + item.new_status +
+            appendLeaveDetailLine(supervisionLeaveDetailContent, leaveDate(item.changed_at),
+                leaveLabel(item.previous_status) + " → " + leaveLabel(item.new_status) +
                 " · " + item.reviewer_name + " · " + item.reason);
         }
+        appendLeaveClassification(supervisionLeaveDetailContent, leave);
         supervisionLeaveDetailMessage.textContent = "";
         supervisionLeaveDetail.scrollIntoView({behavior: "smooth", block: "start"});
     } catch (error) {
