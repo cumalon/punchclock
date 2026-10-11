@@ -1152,6 +1152,13 @@ async function loadLeaveTypes() {
             threshold.placeholder = "Límit automàtic (min)";
             threshold.setAttribute("aria-label", "Límit automàtic en minuts");
             threshold.value = item.auto_approve_minutes ?? "";
+            const syncThreshold = () => {
+                threshold.disabled = policy.value !== "threshold";
+                threshold.required = !threshold.disabled;
+                if (threshold.disabled) threshold.value = "";
+            };
+            policy.addEventListener("change", syncThreshold);
+            syncThreshold();
             const activeLabel = document.createElement("label");
             activeLabel.className = "leave-type-active";
             const active = document.createElement("input");
@@ -1216,3 +1223,18 @@ if (newLeaveTypeForm) newLeaveTypeForm.addEventListener("submit", async event =>
         await loadLeaveTypes();
     } catch (error) { message.textContent = error.message; }
 });
+
+const leaveTypeCreationPolicy = document.getElementById("leave-type-policy");
+if (leaveTypeCreationPolicy) {
+    const leaveTypeCreationThreshold = document.getElementById("leave-type-threshold");
+    const syncCreationThreshold = () => {
+        leaveTypeCreationThreshold.disabled = leaveTypeCreationPolicy.value !== "threshold";
+        leaveTypeCreationThreshold.required = !leaveTypeCreationThreshold.disabled;
+        if (leaveTypeCreationThreshold.disabled) leaveTypeCreationThreshold.value = "";
+    };
+    leaveTypeCreationPolicy.addEventListener("change", syncCreationThreshold);
+    newLeaveTypeForm.addEventListener("reset", () => {
+        queueMicrotask(syncCreationThreshold);
+    });
+    syncCreationThreshold();
+}
