@@ -257,6 +257,7 @@ async function loadPunches() {
 const sectionByHash = {
     "#fitxatges": "punches",
     "#treballadors": "employees",
+    "#usuaris": "users",
     "#copies": "backups",
     "#configuracio": "settings"
 };
