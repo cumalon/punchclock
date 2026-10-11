@@ -261,6 +261,7 @@ async function loadPunches() {
 
 const sectionByHash = {
     "#fitxatges": "punches",
+    "#permisos-personal": "leaves",
     "#treballadors": "employees",
     "#usuaris": "users",
     "#permisos": "leave-types",
