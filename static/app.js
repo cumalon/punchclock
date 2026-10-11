@@ -97,7 +97,27 @@ function updatePinDisplay() {
     display.textContent = "●".repeat(pin.length);
 }
 
+const KIOSK_INACTIVITY_MS = 30000;
+let kioskInactivityTimer = null;
+
+function resetKioskInactivity() {
+    clearTimeout(kioskInactivityTimer);
+    kioskInactivityTimer = null;
+    if (identificationToken) {
+        kioskInactivityTimer = setTimeout(showPinScreen, KIOSK_INACTIVITY_MS);
+    }
+}
+
+document.addEventListener("pointerdown", () => {
+    if (identificationToken) resetKioskInactivity();
+}, {passive: true});
+document.addEventListener("keydown", () => {
+    if (identificationToken) resetKioskInactivity();
+});
+
 function showPinScreen() {
+    clearTimeout(kioskInactivityTimer);
+    kioskInactivityTimer = null;
     employee = null;
     identificationToken = null;
     punchButtons.forEach(button => button.disabled = false);
@@ -154,6 +174,7 @@ async function identify() {
 
         employee = data.employee;
         identificationToken = data.identification_token;
+        resetKioskInactivity();
         employeeName.textContent = employee.name;
 
         pinScreen.classList.add("hidden");
