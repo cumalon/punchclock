@@ -90,3 +90,24 @@ def test_flexible_approval_threshold_can_exceed_reference_duration(admin_client)
         "max_minutes": 20, "auto_approve_minutes": 30,
     })
     assert response.status_code == 201
+
+
+def test_list_active_leave_types_excludes_inactive_and_orders_by_name(client):
+    database.create_leave_type("Zebra", approval_policy="manual")
+    database.create_leave_type(
+        "Esmorzar", approval_policy="threshold",
+        max_minutes=20, auto_approve_minutes=30,
+    )
+    database.create_leave_type("Amagat", approval_policy="automatic", active=False)
+
+    rows = database.list_active_leave_types()
+
+    assert [row["name"] for row in rows] == ["Esmorzar", "Zebra"]
+    assert rows[0]["approval_policy"] == "threshold"
+    assert rows[0]["max_minutes"] == 20
+    assert rows[0]["auto_approve_minutes"] == 30
+    assert all("active" not in row and "used" not in row for row in rows)
+
+
+def test_list_active_leave_types_empty(client):
+    assert database.list_active_leave_types() == []
