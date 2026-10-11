@@ -437,6 +437,7 @@ SUPERVISOR_ENDPOINTS = {
     "admin_correct_punch", "admin_review_punch_incident",
     "admin_punch_incident_reviews", "admin_punch_corrections",
     "admin_employees", "admin_change_password", "admin_logout",
+    "admin_leaves", "admin_leave_detail",
 }
 
 
@@ -558,6 +559,24 @@ def admin_delete_user(user_id):
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
     return jsonify({"ok": True})
+
+
+@app.get("/api/admin/leaves")
+def admin_leaves():
+    filter_by = request.args.get("filter", "all")
+    try:
+        leaves = database.list_employee_leaves_for_supervision(filter_by)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "leaves": leaves})
+
+
+@app.get("/api/admin/leaves/<int:leave_id>")
+def admin_leave_detail(leave_id):
+    leave = database.get_employee_leave_for_supervision(leave_id)
+    if leave is None:
+        return jsonify({"ok": False, "error": "Permís no trobat"}), 404
+    return jsonify({"ok": True, "leave": leave})
 
 
 @app.get("/api/admin/leave-types")
