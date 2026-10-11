@@ -1129,7 +1129,7 @@ async function loadLeaveTypes() {
         }
         for (const item of data.leave_types) {
             const row = document.createElement("div");
-            row.className = "panel";
+            row.className = "leave-type-row";
             const name = document.createElement("input");
             name.value = item.name;
             name.maxLength = 100;
@@ -1153,6 +1153,7 @@ async function loadLeaveTypes() {
             threshold.setAttribute("aria-label", "Límit automàtic en minuts");
             threshold.value = item.auto_approve_minutes ?? "";
             const activeLabel = document.createElement("label");
+            activeLabel.className = "leave-type-active";
             const active = document.createElement("input");
             active.type = "checkbox"; active.checked = Boolean(item.active);
             activeLabel.append(active, " Actiu");
@@ -1182,7 +1183,15 @@ async function loadLeaveTypes() {
                     await loadLeaveTypes();
                 } catch (error) { status.textContent = error.message; remove.disabled = false; }
             });
-            row.append(name, policy, max, threshold, activeLabel, save, remove, status);
+            name.classList.add("leave-type-name");
+            policy.classList.add("leave-type-policy");
+            max.classList.add("leave-type-minutes");
+            threshold.classList.add("leave-type-minutes");
+            const actions = document.createElement("div");
+            actions.className = "leave-type-actions";
+            actions.append(save, remove);
+            status.className = "leave-type-status";
+            row.append(name, policy, max, threshold, activeLabel, actions, status);
             container.appendChild(row);
         }
     } catch (error) {
