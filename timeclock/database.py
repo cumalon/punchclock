@@ -163,6 +163,31 @@ def init_database():
                 FOREIGN KEY (new_employee_id) REFERENCES employee(id)
             );
         """)
+        # Migration compatible amb els permisos creats abans del sprint 3.
+        leave_columns = {
+            row["name"] for row in db.execute("PRAGMA table_info(employee_leave)").fetchall()
+        }
+        leave_migrations = {
+            "record_state": "TEXT NOT NULL DEFAULT 'open' CHECK (record_state IN ('open', 'finished', 'needs_regularization'))",
+            "requires_supervisor": "INTEGER NOT NULL DEFAULT 0 CHECK (requires_supervisor IN (0, 1))",
+            "start_punch_id": "INTEGER REFERENCES punch(id)",
+            "end_punch_id": "INTEGER REFERENCES punch(id)",
+            "regularized_at": "TEXT",
+            "regularized_by": "INTEGER REFERENCES admin_user(id)",
+        }
+        for column, definition in leave_migrations.items():
+            if column not in leave_columns:
+                db.execute(f"ALTER TABLE employee_leave ADD COLUMN {column} {definition}")
+        # Els permisos antics amb hora final ja tenen el registre complet.
+        db.execute("""
+            UPDATE employee_leave SET record_state = 'finished'
+            WHERE ended_at IS NOT NULL AND record_state = 'open'
+        """)
+        db.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_leave_one_open
+            ON employee_leave(employee_id) WHERE record_state = 'open'
+        """)
+
         admin_columns = {row["name"] for row in db.execute("PRAGMA table_info(admin_user)").fetchall()}
         if "pin_hash" not in admin_columns:
             db.execute("ALTER TABLE admin_user ADD COLUMN pin_hash TEXT")
