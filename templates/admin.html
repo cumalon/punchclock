@@ -136,12 +136,19 @@
                     <p id="leave-supervision-message" role="status"></p>
                     <div class="table-wrap">
                         <table>
-                            <thead><tr><th>Data</th><th>Treballador</th><th>Tipus</th><th>Registre</th><th>Decisió</th></tr></thead>
+                            <thead><tr><th>Data</th><th>Treballador</th><th>Tipus</th><th>Registre</th><th>Decisió</th><th>Accions</th></tr></thead>
                             <tbody id="leave-supervision-rows"></tbody>
                         </table>
                     </div>
                 </section>
             </div>
+
+            <section id="leave-supervision-detail" class="panel hidden">
+                <h2>Detall del permís</h2>
+                <div id="leave-supervision-detail-content"></div>
+                <p id="leave-supervision-detail-message" role="status"></p>
+                <button id="close-leave-supervision-detail" type="button" class="secondary-button">Tancar detall</button>
+            </section>
 
             {% if role == 'admin' %}
             <div id="leave-types-section" class="hidden">
@@ -288,6 +295,6 @@
             </div>
         </main>
     </div>
-    <script src="/static/admin.js?v=7.0"></script>
+    <script src="/static/admin.js?v=7.1"></script>
 </body>
 </html>
