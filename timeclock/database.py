@@ -1386,3 +1386,54 @@ def get_employee_leave_for_supervision(leave_id):
         "punches": [dict(row) for row in punches],
         "decision_history": [dict(row) for row in history],
     }
+
+
+def regularize_employee_leave_return(leave_id, returned_at, admin_user_id, reason):
+    """Completa l'hora de retorn verificada, sense crear ni alterar fitxatges."""
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("Cal indicar el motiu de la regularització")
+    if not isinstance(returned_at, str):
+        raise ValueError("Hora de retorn no vàlida")
+    try:
+        parsed_return = datetime.fromisoformat(returned_at)
+        if parsed_return.tzinfo is None or parsed_return.utcoffset() is None:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise ValueError("L'hora de retorn ha d'incloure la zona horària")
+    with get_connection() as db:
+        reviewer = db.execute("""
+            SELECT id FROM admin_user
+            WHERE id = ? AND active = 1 AND role IN ('admin', 'supervisor')
+        """, (admin_user_id,)).fetchone()
+        if reviewer is None:
+            raise ValueError("Supervisor no vàlid o inactiu")
+        leave = db.execute("""
+            SELECT id, started_at, record_state, status, start_punch_id
+            FROM employee_leave WHERE id = ?
+        """, (leave_id,)).fetchone()
+        if leave is None:
+            raise ValueError("Permís no trobat")
+        if leave["record_state"] != "needs_regularization" or leave["start_punch_id"] is None:
+            raise ValueError("Aquest permís no admet regularització de retorn")
+        start_punch = db.execute(
+            "SELECT type FROM punch WHERE id = ?", (leave["start_punch_id"],)
+        ).fetchone()
+        if start_punch is None or start_punch["type"] != "sortida":
+            raise ValueError("Aquest permís no és una sortida temporal")
+        start = parse_local_timestamp(leave["started_at"]).astimezone(timezone.utc)
+        end = parsed_return.astimezone(timezone.utc)
+        if end < start or end > datetime.now(timezone.utc):
+            raise ValueError("Hora de retorn fora de l'interval vàlid")
+        if leave["status"] != "pending":
+            raise ValueError("No es pot regularitzar un permís ja resolt")
+        now = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
+        db.execute("""
+            UPDATE employee_leave
+            SET ended_at = ?, record_state = 'finished',
+                requires_supervisor = 1, status = 'pending',
+                regularized_at = ?, regularized_by = ?,
+                regularization_reason = ?
+            WHERE id = ?
+        """, (returned_at, now, admin_user_id, reason.strip(), leave_id))
+    return {"ok": True, "leave_id": leave_id, "record_state": "finished",
+            "status": "pending"}
