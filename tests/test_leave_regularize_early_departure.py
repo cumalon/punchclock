@@ -26,6 +26,7 @@ def make_early_departure(employee_id):
         admin_id = db.execute(
             "SELECT id FROM admin_user WHERE username = 'admin'"
         ).fetchone()["id"]
+    database.classify_employee_leave_departure(leave_id, "early_departure", admin_id)
     return leave_id, punch_id, admin_id, actual
 
 
