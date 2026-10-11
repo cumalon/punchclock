@@ -1349,3 +1349,37 @@ def list_employee_leaves_for_supervision(filter_by="all"):
             ORDER BY utc_timestamp_sort_key(el.started_at) DESC, el.id DESC
         """).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_employee_leave_for_supervision(leave_id):
+    """Detall de permís amb fitxatges vinculats i historial de decisions."""
+    with get_connection() as db:
+        leave = db.execute("""
+            SELECT el.*, e.name AS employee_name, lt.name AS leave_type_name,
+                   lt.approval_policy, lt.max_minutes, lt.auto_approve_minutes
+            FROM employee_leave el
+            JOIN employee e ON e.id = el.employee_id
+            JOIN leave_type lt ON lt.id = el.leave_type_id
+            WHERE el.id = ?
+        """, (leave_id,)).fetchone()
+        if leave is None:
+            return None
+        punches = db.execute("""
+            SELECT id, employee_id, timestamp, type, method, incident, note
+            FROM punch
+            WHERE id IN (?, ?)
+            ORDER BY utc_timestamp_sort_key(timestamp), id
+        """, (leave["start_punch_id"], leave["end_punch_id"])).fetchall()
+        history = db.execute("""
+            SELECT h.id, h.admin_user_id, u.username AS reviewer_name,
+                   h.changed_at, h.previous_status, h.new_status, h.reason
+            FROM employee_leave_decision_history h
+            JOIN admin_user u ON u.id = h.admin_user_id
+            WHERE h.leave_id = ?
+            ORDER BY utc_timestamp_sort_key(h.changed_at), h.id
+        """, (leave_id,)).fetchall()
+    return {
+        **dict(leave),
+        "punches": [dict(row) for row in punches],
+        "decision_history": [dict(row) for row in history],
+    }
