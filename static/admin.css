@@ -1094,3 +1094,11 @@ input[type="checkbox"] {
     .leave-type-active, .leave-type-actions { grid-row: auto; }
     .leave-type-actions { justify-content: flex-end; }
 }
+
+/* Camps de límit no aplicables: visibles però inactius */
+#leave-types-section input:disabled {
+    background: #f2f0eb;
+    border-color: #ddd9cf;
+    color: #88857e;
+    cursor: not-allowed;
+}
