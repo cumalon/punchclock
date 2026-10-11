@@ -92,6 +92,32 @@ def init_database():
                 detail TEXT NOT NULL DEFAULT ''
             );
 
+            CREATE TABLE IF NOT EXISTS leave_type (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+                approval_policy TEXT NOT NULL DEFAULT 'manual'
+                    CHECK (approval_policy IN ('manual', 'automatic', 'threshold')),
+                max_minutes INTEGER CHECK (max_minutes IS NULL OR max_minutes > 0),
+                auto_approve_minutes INTEGER CHECK (
+                    auto_approve_minutes IS NULL OR auto_approve_minutes > 0
+                ),
+                CHECK (
+                    (approval_policy = 'threshold' AND auto_approve_minutes IS NOT NULL)
+                    OR (approval_policy != 'threshold' AND auto_approve_minutes IS NULL)
+                )
+            );
+
+            CREATE TABLE IF NOT EXISTS employee_leave (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id INTEGER NOT NULL REFERENCES employee(id),
+                leave_type_id INTEGER NOT NULL REFERENCES leave_type(id) ON DELETE RESTRICT,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'approved', 'rejected'))
+            );
+
             CREATE TABLE IF NOT EXISTS setting (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -888,3 +914,80 @@ def list_punch_incident_reviews(punch_id):
             (punch_id,)
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minutes):
+    name = str(name or "").strip()
+    if not name or len(name) > 100:
+        raise ValueError("El nom ha de tenir entre 1 i 100 caràcters")
+    if approval_policy not in ("manual", "automatic", "threshold"):
+        raise ValueError("Política d'aprovació no vàlida")
+    for value in (max_minutes, auto_approve_minutes):
+        if value is not None and (type(value) is not int or value <= 0):
+            raise ValueError("La durada ha de ser un nombre enter positiu")
+    if approval_policy == "threshold" and auto_approve_minutes is None:
+        raise ValueError("Cal indicar el límit d'aprovació automàtica")
+    if approval_policy != "threshold" and auto_approve_minutes is not None:
+        raise ValueError("Aquest tipus no admet un límit d'aprovació automàtica")
+    if max_minutes is not None and auto_approve_minutes is not None and auto_approve_minutes > max_minutes:
+        raise ValueError("El límit automàtic no pot superar la durada màxima")
+    return name
+
+
+def list_leave_types():
+    with get_connection() as db:
+        rows = db.execute("""
+            SELECT lt.*, EXISTS(
+                SELECT 1 FROM employee_leave el WHERE el.leave_type_id = lt.id
+            ) AS used
+            FROM leave_type lt ORDER BY lt.name COLLATE NOCASE, lt.id
+        """).fetchall()
+    return [dict(row) for row in rows]
+
+
+def create_leave_type(name, approval_policy="manual", max_minutes=None,
+                      auto_approve_minutes=None, active=True):
+    name = _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minutes)
+    if type(active) is not bool:
+        raise ValueError("Estat actiu no vàlid")
+    with get_connection() as db:
+        try:
+            cursor = db.execute("""
+                INSERT INTO leave_type (name, approval_policy, max_minutes, auto_approve_minutes, active)
+                VALUES (?, ?, ?, ?, ?)
+            """, (name, approval_policy, max_minutes, auto_approve_minutes, int(active)))
+        except sqlite3.IntegrityError:
+            raise ValueError("Ja existeix un tipus de permís amb aquest nom")
+        return cursor.lastrowid
+
+
+def update_leave_type(type_id, name, approval_policy, max_minutes=None,
+                      auto_approve_minutes=None, active=True):
+    name = _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minutes)
+    if type(active) is not bool:
+        raise ValueError("Estat actiu no vàlid")
+    with get_connection() as db:
+        try:
+            cursor = db.execute("""
+                UPDATE leave_type
+                SET name = ?, approval_policy = ?, max_minutes = ?,
+                    auto_approve_minutes = ?, active = ?
+                WHERE id = ?
+            """, (name, approval_policy, max_minutes, auto_approve_minutes, int(active), type_id))
+        except sqlite3.IntegrityError:
+            raise ValueError("Ja existeix un tipus de permís amb aquest nom")
+        if not cursor.rowcount:
+            raise ValueError("Tipus de permís no trobat")
+
+
+def delete_leave_type(type_id):
+    with get_connection() as db:
+        row = db.execute("SELECT id FROM leave_type WHERE id = ?", (type_id,)).fetchone()
+        if row is None:
+            raise ValueError("Tipus de permís no trobat")
+        if db.execute("SELECT 1 FROM employee_leave WHERE leave_type_id = ? LIMIT 1", (type_id,)).fetchone():
+            raise ValueError("Aquest tipus ja s'ha utilitzat; només es pot desactivar")
+        try:
+            db.execute("DELETE FROM leave_type WHERE id = ?", (type_id,))
+        except sqlite3.IntegrityError:
+            raise ValueError("Aquest tipus ja s'ha utilitzat; només es pot desactivar")
