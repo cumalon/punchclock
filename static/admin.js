@@ -907,7 +907,9 @@ async function loadWebUsers() {
     container.replaceChildren();
     for (const user of data.users) {
         const row = document.createElement("div");
-        row.className = "employee";
+        row.className = "employee web-user-row";
+        const actions = document.createElement("div");
+        actions.className = "web-user-actions";
         const label = document.createElement("span");
         label.textContent = user.username + " (" + (user.role === "admin" ? "Administrador" : "Supervisor") + ")";
         const button = document.createElement("button");
@@ -958,7 +960,9 @@ async function loadWebUsers() {
         });
         const pending = document.createElement("span");
         pending.textContent = user.must_change_password ? "Canvi de contrasenya pendent" : "";
-        row.append(label, button, passwordButton, deleteButton, pending);
+        pending.className = "web-user-status";
+        actions.append(button, passwordButton, deleteButton);
+        row.append(label, actions, pending);
         container.appendChild(row);
     }
 }
