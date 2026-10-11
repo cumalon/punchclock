@@ -137,6 +137,7 @@ function showSection(section) {
     employeesSection.classList.toggle("hidden", section !== "employees");
     punchesSection.classList.toggle("hidden", section !== "punches");
     document.getElementById("leaves-section").classList.toggle("hidden", section !== "leaves");
+    document.getElementById("leave-supervision-detail").classList.add("hidden");
     settingsSection.classList.toggle("hidden", section !== "settings");
     backupsSection.classList.toggle("hidden", section !== "backups");
     const leaveTypesSection = document.getElementById("leave-types-section");
@@ -1271,6 +1272,13 @@ async function loadSupervisionLeaves() {
                 cell.textContent = value ?? "";
                 row.appendChild(cell);
             }
+            const actionCell = document.createElement("td");
+            const detailButton = document.createElement("button");
+            detailButton.type = "button";
+            detailButton.textContent = "Veure detall";
+            detailButton.addEventListener("click", () => loadSupervisionLeaveDetail(leave.id));
+            actionCell.appendChild(detailButton);
+            row.appendChild(actionCell);
             supervisionLeaveRows.appendChild(row);
         }
         supervisionLeaveMessage.textContent = data.leaves.length ?
@@ -1281,3 +1289,65 @@ async function loadSupervisionLeaves() {
 }
 
 supervisionLeaveFilter.addEventListener("change", loadSupervisionLeaves);
+
+
+const supervisionLeaveDetail = document.getElementById("leave-supervision-detail");
+const supervisionLeaveDetailContent = document.getElementById("leave-supervision-detail-content");
+const supervisionLeaveDetailMessage = document.getElementById("leave-supervision-detail-message");
+
+function appendLeaveDetailLine(container, label, value) {
+    const paragraph = document.createElement("p");
+    const strong = document.createElement("strong");
+    strong.textContent = label + ": ";
+    paragraph.append(strong, document.createTextNode(value == null ? "—" : String(value)));
+    container.appendChild(paragraph);
+}
+
+async function loadSupervisionLeaveDetail(leaveId) {
+    supervisionLeaveDetail.classList.remove("hidden");
+    supervisionLeaveDetailContent.replaceChildren();
+    supervisionLeaveDetailMessage.textContent = "Carregant detall...";
+    try {
+        const response = await fetch("/api/admin/leaves/" + encodeURIComponent(leaveId));
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || "No s'ha pogut carregar");
+        const leave = data.leave;
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Treballador", leave.employee_name);
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Tipus", leave.leave_type_name);
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Inici registrat", leave.started_at);
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Final registrat", leave.ended_at);
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Hora prevista d'entrada", leave.expected_started_at);
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Hora prevista de sortida", leave.expected_ended_at);
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Estat del registre", leave.record_state);
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Decisió", leave.status);
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Regularització", leave.regularization_kind);
+        appendLeaveDetailLine(supervisionLeaveDetailContent, "Motiu de regularització", leave.regularization_reason);
+        const punchHeading = document.createElement("h3");
+        punchHeading.textContent = "Fitxatges vinculats";
+        supervisionLeaveDetailContent.appendChild(punchHeading);
+        if (!leave.punches.length) appendLeaveDetailLine(supervisionLeaveDetailContent, "Fitxatges", "Cap");
+        for (const punch of leave.punches) {
+            appendLeaveDetailLine(supervisionLeaveDetailContent, "Fitxatge #" + punch.id,
+                punch.timestamp + " · " + punch.type + (punch.incident ? " · incidència" : ""));
+        }
+        const historyHeading = document.createElement("h3");
+        historyHeading.textContent = "Historial de decisions";
+        supervisionLeaveDetailContent.appendChild(historyHeading);
+        if (!leave.decision_history.length) {
+            appendLeaveDetailLine(supervisionLeaveDetailContent, "Historial", "Sense decisions manuals");
+        }
+        for (const item of leave.decision_history) {
+            appendLeaveDetailLine(supervisionLeaveDetailContent, item.changed_at,
+                item.previous_status + " → " + item.new_status +
+                " · " + item.reviewer_name + " · " + item.reason);
+        }
+        supervisionLeaveDetailMessage.textContent = "";
+        supervisionLeaveDetail.scrollIntoView({behavior: "smooth", block: "start"});
+    } catch (error) {
+        supervisionLeaveDetailMessage.textContent = error.message;
+    }
+}
+
+document.getElementById("close-leave-supervision-detail").addEventListener("click", () => {
+    supervisionLeaveDetail.classList.add("hidden");
+});
