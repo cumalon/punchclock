@@ -1056,43 +1056,86 @@ input[type="checkbox"] {
 
 
 /* Tipus de permisos: una fila editable per registre */
-#leave-types-list { display: grid; gap: 10px; }
+#leave-types-list { display: grid; gap: 12px; }
 .leave-type-row {
     display: grid;
-    grid-template-columns: minmax(125px, 1.4fr) minmax(190px, 1.6fr) minmax(78px, .55fr) minmax(78px, .55fr) auto auto;
-    gap: 10px;
+    grid-template-columns: 30px minmax(180px, 1.5fr) minmax(210px, 1.3fr) minmax(78px, .5fr) minmax(78px, .5fr) 70px 174px;
+    gap: 8px;
     align-items: center;
-    padding: 12px 14px;
+    padding: 12px;
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: 12px;
     background: var(--surface);
 }
 .leave-type-row > input,
-.leave-type-row > select { min-width: 0; width: 100%; min-height: 38px; }
-.leave-type-row .leave-type-minutes { padding-inline: 8px; }
+.leave-type-row > select { min-width: 0; width: 100%; min-height: 42px; }
+.leave-type-row .leave-type-minutes { padding-inline: 10px; }
+.leave-type-drag-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    min-height: 42px;
+    border-radius: 7px;
+    color: var(--muted);
+    font-size: 1.5rem;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+}
+.leave-type-drag-handle:hover { background: #f2f0eb; color: var(--text); }
+.leave-type-drag-handle:active { cursor: grabbing; }
+.leave-type-dragging { opacity: .55; }
+.leave-type-drop-target { outline: 2px dashed #d6a627; outline-offset: -3px; }
 .leave-type-active {
     display: inline-flex;
-    flex-direction: row;
     align-items: center;
     gap: 5px;
     white-space: nowrap;
     font-size: .9rem;
 }
 .leave-type-active input { width: 17px; min-height: 17px; height: 17px; margin: 0; }
-.leave-type-actions { display: flex; gap: 6px; align-items: center; }
-.leave-type-actions button { min-height: 38px; padding: 7px 11px; font-size: .88rem; }
-.leave-type-status { grid-column: 1 / -1; font-size: .85rem; color: var(--muted); }
+.leave-type-actions {
+    grid-column: 7;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+}
+.leave-type-actions button { min-height: 38px; padding: 7px 13px; font-size: .9rem; }
+.leave-type-status { grid-column: 2 / -1; font-size: .85rem; color: var(--muted); }
 .leave-type-status:empty { display: none; }
 .leave-type-row [hidden] { display: none !important; }
 @media (max-width: 1250px) {
-    .leave-type-row { grid-template-columns: minmax(160px, 1.5fr) minmax(190px, 1.5fr) repeat(2, minmax(85px, .6fr)); }
-    .leave-type-active, .leave-type-actions { grid-row: 2; }
+    .leave-type-row {
+        grid-template-columns: 30px minmax(155px, 1.4fr) minmax(185px, 1.3fr) minmax(70px, .5fr) minmax(70px, .5fr) 66px 160px;
+        gap: 6px;
+        padding: 10px;
+    }
+    .leave-type-actions { grid-column: 7; gap: 4px; }
+    .leave-type-actions button { padding: 7px 8px; font-size: .84rem; }
 }
-@media (max-width: 700px) {
-    .leave-type-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-    .leave-type-name, .leave-type-policy { grid-column: 1 / -1; }
-    .leave-type-active, .leave-type-actions { grid-row: auto; }
-    .leave-type-actions { justify-content: flex-end; }
+@media (max-width: 1050px) {
+    .leave-type-row { grid-template-columns: 30px minmax(0, 1.4fr) minmax(0, 1.3fr) minmax(75px, .6fr) minmax(75px, .6fr); }
+    .leave-type-active { grid-column: 2; }
+    .leave-type-actions { grid-column: 3 / -1; }
+}
+@media (max-width: 780px) {
+    .leave-type-row { grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr); }
+    .leave-type-drag-handle { grid-column: 1; grid-row: 1; }
+    .leave-type-name { grid-column: 2 / -1; }
+    .leave-type-policy { grid-column: 1 / -1; }
+    .leave-type-row .leave-type-minutes { grid-column: span 1; }
+    .leave-type-active { grid-column: 1; }
+    .leave-type-actions { grid-column: 2 / -1; }
+    .leave-type-status { grid-column: 1 / -1; }
+}
+@media (max-width: 460px) {
+    .leave-type-row { grid-template-columns: 1fr 1fr; }
+    .leave-type-drag-handle { grid-column: 1; }
+    .leave-type-name { grid-column: 1 / -1; }
+    .leave-type-policy { grid-column: 1 / -1; }
+    .leave-type-actions { grid-column: 1 / -1; justify-content: flex-start; }
 }
 
 /* Camps de límit no aplicables: visibles però inactius */

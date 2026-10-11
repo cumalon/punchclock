@@ -96,6 +96,7 @@ def init_database():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+                sort_order INTEGER NOT NULL DEFAULT 0,
                 approval_policy TEXT NOT NULL DEFAULT 'manual'
                     CHECK (approval_policy IN ('manual', 'automatic', 'threshold')),
                 max_minutes INTEGER CHECK (max_minutes IS NULL OR max_minutes > 0),
@@ -214,6 +215,11 @@ def init_database():
 
         if "must_change_password" not in admin_columns:
             db.execute("ALTER TABLE admin_user ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
+
+        leave_type_columns = {row["name"] for row in db.execute("PRAGMA table_info(leave_type)").fetchall()}
+        if "sort_order" not in leave_type_columns:
+            db.execute("ALTER TABLE leave_type ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+            db.execute("UPDATE leave_type SET sort_order = id")
 
         review_columns = {row["name"] for row in db.execute("PRAGMA table_info(punch_incident_review)").fetchall()}
         review_indexes = db.execute("PRAGMA index_list(punch_incident_review)").fetchall()
@@ -979,7 +985,7 @@ def list_leave_types():
             SELECT lt.*, EXISTS(
                 SELECT 1 FROM employee_leave el WHERE el.leave_type_id = lt.id
             ) AS used
-            FROM leave_type lt ORDER BY lt.name COLLATE NOCASE, lt.id
+            FROM leave_type lt ORDER BY lt.sort_order, lt.id
         """).fetchall()
     return [dict(row) for row in rows]
 
@@ -992,8 +998,8 @@ def create_leave_type(name, approval_policy="manual", max_minutes=None,
     with get_connection() as db:
         try:
             cursor = db.execute("""
-                INSERT INTO leave_type (name, approval_policy, max_minutes, auto_approve_minutes, active)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO leave_type (name, approval_policy, max_minutes, auto_approve_minutes, active, sort_order)
+                VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM leave_type), 1))
             """, (name, approval_policy, max_minutes, auto_approve_minutes, int(active)))
         except sqlite3.IntegrityError:
             raise ValueError("Ja existeix un tipus de permís amb aquest nom")
@@ -1032,13 +1038,29 @@ def delete_leave_type(type_id):
             raise ValueError("Aquest tipus ja s'ha utilitzat; només es pot desactivar")
 
 
+def reorder_leave_types(ordered_ids):
+    """Desa l'ordre complet dels tipus de permís de forma atòmica."""
+    if not isinstance(ordered_ids, list) or any(type(item) is not int for item in ordered_ids):
+        raise ValueError("Ordre de permisos no vàlid")
+    if len(set(ordered_ids)) != len(ordered_ids):
+        raise ValueError("L'ordre conté identificadors repetits")
+    with get_connection() as db:
+        existing = {row["id"] for row in db.execute("SELECT id FROM leave_type")}
+        if set(ordered_ids) != existing:
+            raise ValueError("L'ordre ha d'incloure tots els tipus de permís")
+        db.executemany(
+            "UPDATE leave_type SET sort_order = ? WHERE id = ?",
+            [(index, type_id) for index, type_id in enumerate(ordered_ids, 1)],
+        )
+
+
 def list_active_leave_types():
     """Tipus disponibles al terminal, sense exposar els inactius."""
     with get_connection() as db:
         rows = db.execute("""
             SELECT id, name, approval_policy, max_minutes, auto_approve_minutes
             FROM leave_type WHERE active = 1
-            ORDER BY name COLLATE NOCASE, id
+            ORDER BY sort_order, id
         """).fetchall()
     return [dict(row) for row in rows]
 

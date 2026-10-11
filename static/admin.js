@@ -1131,7 +1131,7 @@ async function loadLeaveTypes() {
             container.textContent = "Encara no hi ha tipus de permisos.";
             return;
         }
-        for (const item of data.leave_types) {
+        for (const [index, item] of data.leave_types.entries()) {
             const row = document.createElement("div");
             row.className = "leave-type-row";
             const name = document.createElement("input");
@@ -1198,11 +1198,54 @@ async function loadLeaveTypes() {
             policy.classList.add("leave-type-policy");
             max.classList.add("leave-type-minutes");
             threshold.classList.add("leave-type-minutes");
+            const handle = document.createElement("span");
+            handle.className = "leave-type-drag-handle";
+            handle.textContent = "⠿";
+            handle.title = "Arrossega per canviar l'ordre";
+            handle.setAttribute("aria-label", "Arrossega per moure " + item.name);
+            handle.draggable = true;
+            row.dataset.leaveTypeId = String(item.id);
+            handle.addEventListener("dragstart", event => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", String(item.id));
+                row.classList.add("leave-type-dragging");
+            });
+            handle.addEventListener("dragend", () => {
+                row.classList.remove("leave-type-dragging");
+                container.querySelectorAll(".leave-type-drop-target").forEach(element =>
+                    element.classList.remove("leave-type-drop-target"));
+            });
+            row.addEventListener("dragover", event => {
+                if (!event.dataTransfer.types.includes("text/plain")) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                row.classList.add("leave-type-drop-target");
+            });
+            row.addEventListener("dragleave", event => {
+                if (!row.contains(event.relatedTarget)) row.classList.remove("leave-type-drop-target");
+            });
+            row.addEventListener("drop", async event => {
+                event.preventDefault();
+                row.classList.remove("leave-type-drop-target");
+                const sourceId = Number(event.dataTransfer.getData("text/plain"));
+                if (!sourceId || sourceId === item.id) return;
+                const ids = data.leave_types.map(type => type.id);
+                const from = ids.indexOf(sourceId);
+                const to = ids.indexOf(item.id);
+                if (from < 0 || to < 0) return;
+                ids.splice(to, 0, ids.splice(from, 1)[0]);
+                try {
+                    await leaveTypeRequest("/api/admin/leave-types/order", "PUT", { ids });
+                    await loadLeaveTypes();
+                } catch (error) {
+                    status.textContent = error.message;
+                }
+            });
             const actions = document.createElement("div");
             actions.className = "leave-type-actions";
             actions.append(save, remove);
             status.className = "leave-type-status";
-            row.append(name, policy, max, threshold, activeLabel, actions, status);
+            row.append(handle, name, policy, max, threshold, activeLabel, actions, status);
             container.appendChild(row);
         }
     } catch (error) {
