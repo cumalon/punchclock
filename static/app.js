@@ -10,6 +10,9 @@ let usbAdminPin = "";
 
 const pinScreen = document.getElementById("pin-screen");
 const punchScreen = document.getElementById("punch-screen");
+const leaveScreen = document.getElementById("leave-screen");
+const leaveOptionsList = document.getElementById("leave-options-list");
+const leaveOptionsMessage = document.getElementById("leave-options-message");
 const pinKeypad = document.querySelector(".keypad");
 const display = document.getElementById("pin-display");
 const employeeName = document.getElementById("employee-name");
@@ -100,6 +103,8 @@ function showPinScreen() {
     pinKeypad.classList.remove("hidden");
 
     punchScreen.classList.add("hidden");
+    leaveScreen.classList.add("hidden");
+    leaveOptionsList.replaceChildren();
     pinScreen.classList.remove("hidden");
 }
 
@@ -364,3 +369,49 @@ updateClock();
 setInterval(updateClock, 1000);
 checkUsbStatus();
 setInterval(checkUsbStatus, 2000);
+
+
+async function showLeaveOptions() {
+    if (!identificationToken) return;
+    punchScreen.classList.add("hidden");
+    leaveScreen.classList.remove("hidden");
+    leaveOptionsList.replaceChildren();
+    leaveOptionsMessage.textContent = "Carregant permisos...";
+    try {
+        const response = await fetch("/api/leave/options", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({identification_token: identificationToken})
+        });
+        const data = await response.json();
+        if (!data.ok) {
+            leaveOptionsMessage.textContent = data.error || "No s'han pogut consultar els permisos";
+            return;
+        }
+        if (data.context.open_leave) {
+            leaveOptionsMessage.textContent =
+                "Tens un permís pendent de finalitzar: " + data.context.open_leave.leave_type_name;
+            return;
+        }
+        if (!data.leave_types.length) {
+            leaveOptionsMessage.textContent = "No hi ha tipus de permís disponibles";
+            return;
+        }
+        leaveOptionsMessage.textContent = "Selecciona un tipus de permís (consulta de prova)";
+        for (const kind of data.leave_types) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = kind.name;
+            button.disabled = true;
+            leaveOptionsList.append(button);
+        }
+    } catch {
+        leaveOptionsMessage.textContent = "Error de connexió";
+    }
+}
+
+document.getElementById("show-leave-options").addEventListener("click", showLeaveOptions);
+document.getElementById("cancel-leave-options").addEventListener("click", () => {
+    leaveScreen.classList.add("hidden");
+    punchScreen.classList.remove("hidden");
+});
