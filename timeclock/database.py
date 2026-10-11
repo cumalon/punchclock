@@ -1323,3 +1323,29 @@ def punch_with_open_leave(employee_id, punch_type, return_choice=None,
             "incident": int(unexpected), "timestamp": timestamp,
             "ordinary_punch_required": False,
         }
+
+
+def list_employee_leaves_for_supervision(filter_by="all"):
+    """Consulta de permisos per al supervisor, sense modificar-ne l'estat."""
+    if filter_by not in ("all", "regularization", "approval", "history"):
+        raise ValueError("Filtre de permisos no vàlid")
+    conditions = {
+        "all": "1 = 1",
+        "regularization": "el.record_state = 'needs_regularization'",
+        "approval": "el.status = 'pending' AND el.record_state = 'finished'",
+        "history": "el.status IN ('approved', 'rejected')",
+    }
+    with get_connection() as db:
+        rows = db.execute(f"""
+            SELECT el.id, el.employee_id, e.name AS employee_name,
+                   el.leave_type_id, lt.name AS leave_type_name,
+                   el.started_at, el.ended_at, el.status, el.record_state,
+                   el.requires_supervisor, el.start_punch_id, el.end_punch_id,
+                   el.regularized_at, el.regularized_by
+            FROM employee_leave el
+            JOIN employee e ON e.id = el.employee_id
+            JOIN leave_type lt ON lt.id = el.leave_type_id
+            WHERE {conditions[filter_by]}
+            ORDER BY utc_timestamp_sort_key(el.started_at) DESC, el.id DESC
+        """).fetchall()
+    return [dict(row) for row in rows]
