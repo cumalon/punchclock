@@ -470,3 +470,18 @@ p { font-size: 1.2rem; }
 }
 #leave-register:disabled { opacity: 0.65; box-shadow: none; }
 #leave-confirm-message { margin-top: 18px; font-weight: 600; }
+
+#finish-leave-choice:not(.hidden), #leave-finish-register:not(.hidden) {
+    display: block;
+    width: 100%;
+    min-height: 76px;
+    margin-top: 24px;
+    padding: 14px 12px;
+    border: 3px solid #14532d;
+    border-radius: 14px;
+    background: #166534;
+    color: #fff;
+    font-size: 1.25rem;
+    font-weight: 800;
+}
+#leave-finish-register:disabled { opacity: 0.65; }
