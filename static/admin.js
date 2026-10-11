@@ -1378,6 +1378,69 @@ function appendLeaveClassification(container, leave) {
     container.append(heading, explanation, label, button);
 }
 
+function appendReturnRegularization(container, leave) {
+    if (leave.record_state !== "needs_regularization" ||
+        leave.status !== "pending" || leave.regularization_kind !== "return") return;
+
+    const heading = document.createElement("h3");
+    heading.textContent = "Regularitzar el retorn oblidat";
+    const explanation = document.createElement("p");
+    explanation.textContent = "Indica l'hora real de retorn, no l'hora actual. El fitxatge original es conservarà i el permís continuarà pendent d'aprovació.";
+    const form = document.createElement("form");
+    const dateLabel = document.createElement("label");
+    dateLabel.textContent = "Data i hora real de retorn ";
+    const dateInput = document.createElement("input");
+    dateInput.type = "datetime-local";
+    dateInput.required = true;
+    dateInput.step = "60";
+    dateLabel.appendChild(dateInput);
+    const reasonLabel = document.createElement("label");
+    reasonLabel.textContent = "Justificació ";
+    const reasonInput = document.createElement("textarea");
+    reasonInput.required = true;
+    reasonInput.rows = 3;
+    reasonInput.placeholder = "Com s'ha comprovat l'hora de retorn?";
+    reasonLabel.appendChild(reasonInput);
+    const button = document.createElement("button");
+    button.type = "submit";
+    button.textContent = "Desar regularització";
+    form.append(dateLabel, reasonLabel, button);
+    form.addEventListener("submit", async event => {
+        event.preventDefault();
+        if (!form.reportValidity() || !reasonInput.value.trim()) {
+            supervisionLeaveDetailMessage.textContent = "Cal indicar una justificació.";
+            return;
+        }
+        const local = new Date(dateInput.value);
+        if (Number.isNaN(local.getTime())) {
+            supervisionLeaveDetailMessage.textContent = "Data i hora no vàlides.";
+            return;
+        }
+        if (!confirm("Confirmes l'hora real de retorn? Aquesta operació no aprova el permís.")) return;
+        button.disabled = true;
+        supervisionLeaveDetailMessage.textContent = "Desant regularització...";
+        try {
+            const response = await fetch("/api/admin/leaves/" + leave.id + "/regularize-return", {
+                method: "POST",
+                headers: adminHeaders({"Content-Type": "application/json"}),
+                body: JSON.stringify({
+                    returned_at: local.toISOString(),
+                    reason: reasonInput.value.trim()
+                })
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) throw new Error(data.error || "No s'ha pogut regularitzar");
+            await loadSupervisionLeaveDetail(leave.id);
+            await loadSupervisionLeaves();
+            supervisionLeaveDetailMessage.textContent = "Retorn regularitzat. Permís pendent d'aprovació.";
+        } catch (error) {
+            supervisionLeaveDetailMessage.textContent = error.message;
+            button.disabled = false;
+        }
+    });
+    container.append(heading, explanation, form);
+}
+
 async function loadSupervisionLeaveDetail(leaveId) {
     supervisionLeaveDetail.classList.remove("hidden");
     supervisionLeaveDetailContent.replaceChildren();
@@ -1417,6 +1480,7 @@ async function loadSupervisionLeaveDetail(leaveId) {
                 " · " + item.reviewer_name + " · " + item.reason);
         }
         appendLeaveClassification(supervisionLeaveDetailContent, leave);
+        appendReturnRegularization(supervisionLeaveDetailContent, leave);
         supervisionLeaveDetailMessage.textContent = "";
         supervisionLeaveDetail.scrollIntoView({behavior: "smooth", block: "start"});
     } catch (error) {
