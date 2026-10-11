@@ -43,6 +43,7 @@
             <div class="punch-actions">
                 <button data-punch="entrada">ENTRADA</button>
                 <button data-punch="sortida">SORTIDA</button>
+                <button id="show-leave-options" type="button">PERMÍS</button>
             </div>
             <button id="cancel-punch" class="secondary-action" type="button">TORNAR</button>
 
@@ -53,6 +54,13 @@
                 <button id="confirm-incident" type="button">CONFIRMAR</button>
                 <button id="cancel-incident" type="button">CANCEL·LAR</button>
             </div>
+        </section>
+
+        <section id="leave-screen" class="kiosk-card hidden">
+            <h1>Permisos disponibles</h1>
+            <p id="leave-options-message"></p>
+            <div id="leave-options-list" class="punch-actions"></div>
+            <button id="cancel-leave-options" class="secondary-action" type="button">TORNAR</button>
         </section>
     </main>
 
@@ -76,6 +84,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=6.4"></script>
+    <script src="/static/app.js?v=6.5"></script>
 </body>
 </html>
