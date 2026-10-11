@@ -50,8 +50,9 @@ def test_return_earlier_marks_leave_without_creating_punch(client, employee):
     result = database.punch_with_open_leave(
         worker["id"], "entrada", return_choice="earlier", now=NOW
     )
-    assert result["ordinary_punch_required"]
-    assert _punch_count() == before
+    assert result["ordinary_punch_required"] is False
+    assert result["punch_type"] == "entrada"
+    assert _punch_count() == before + 1
     assert database.get_employee_leave_context(worker["id"], now=NOW)["open_leave"] is None
 
 
@@ -85,3 +86,24 @@ def test_return_now_incident_keeps_leave_open_until_confirmed(client, employee):
     )
     assert confirmed["punch_reused_as_return"]
     assert _punch_count() == before + 1
+
+
+def test_earlier_return_incident_requires_confirmation_atomically(client, employee):
+    worker = _setup(employee)
+    before = _punch_count()
+    result = database.punch_with_open_leave(
+        worker["id"], "sortida", return_choice="earlier", now=NOW + timedelta(minutes=10)
+    )
+    assert result["confirmation_required"]
+    assert result["requested_punch_type"] == "sortida"
+    assert _punch_count() == before
+    assert database.get_employee_leave_context(worker["id"], now=NOW)["open_leave"] is not None
+
+    confirmed = database.punch_with_open_leave(
+        worker["id"], "sortida", return_choice="earlier",
+        confirm_incident=True, now=NOW + timedelta(minutes=10)
+    )
+    assert confirmed["ok"]
+    assert confirmed["incident"] == 1
+    assert _punch_count() == before + 1
+    assert database.get_employee_leave_context(worker["id"], now=NOW)["open_leave"] is None
