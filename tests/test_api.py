@@ -788,7 +788,7 @@ def test_forced_password_change_blocks_access_until_completed(admin_client):
         "temporary_password": "temporary-password-123",
         "new_password": "brand-new-password-123",
         "confirmation": "brand-new-password-123",
-    }).status_code == 200
+    }, headers={"X-CSRF-Token": login.get_json()["csrf_token"]}).status_code == 200
     assert admin_client.get("/api/admin/punches").status_code == 401
     assert admin_client.post("/api/admin/login", json={
         "username": "supervisor_forced", "password": "temporary-password-123",
