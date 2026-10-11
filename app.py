@@ -652,6 +652,16 @@ def admin_leave_types():
     return jsonify({"ok": True, "leave_types": database.list_leave_types()})
 
 
+@app.put("/api/admin/leave-types/order")
+def admin_reorder_leave_types():
+    data = request.get_json(silent=True) or {}
+    try:
+        database.reorder_leave_types(data.get("ids"))
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True})
+
+
 @app.post("/api/admin/leave-types")
 def admin_create_leave_type():
     data = request.get_json(silent=True) or {}
