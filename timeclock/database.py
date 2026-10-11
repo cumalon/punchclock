@@ -1608,3 +1608,41 @@ def classify_employee_leave_departure(leave_id, kind, admin_user_id):
             WHERE id = ?
         """, (kind, leave_id))
     return {"ok": True, "leave_id": leave_id, "regularization_kind": kind}
+
+
+def decide_employee_leave(leave_id, new_status, admin_user_id, reason):
+    """Canvia una decisió i en conserva l'historial dins una transacció."""
+    if new_status not in ("approved", "rejected"):
+        raise ValueError("Decisió de permís no vàlida")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("Cal justificar la decisió")
+    with get_connection() as db:
+        reviewer = db.execute("""
+            SELECT id FROM admin_user
+            WHERE id = ? AND active = 1 AND role IN ('admin', 'supervisor')
+        """, (admin_user_id,)).fetchone()
+        if reviewer is None:
+            raise ValueError("Supervisor no vàlid o inactiu")
+        leave = db.execute("""
+            SELECT status, record_state FROM employee_leave WHERE id = ?
+        """, (leave_id,)).fetchone()
+        if leave is None:
+            raise ValueError("Permís no trobat")
+        if leave["record_state"] != "finished":
+            raise ValueError("Cal finalitzar o regularitzar el permís abans de decidir")
+        previous_status = leave["status"]
+        if previous_status == new_status:
+            raise ValueError("El permís ja té aquesta decisió")
+        now = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
+        db.execute("""
+            INSERT INTO employee_leave_decision_history
+                (leave_id, admin_user_id, changed_at,
+                 previous_status, new_status, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (leave_id, admin_user_id, now, previous_status,
+              new_status, reason.strip()))
+        db.execute("""
+            UPDATE employee_leave SET status = ? WHERE id = ?
+        """, (new_status, leave_id))
+    return {"ok": True, "leave_id": leave_id, "previous_status": previous_status,
+            "status": new_status}
