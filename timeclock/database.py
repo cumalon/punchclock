@@ -1204,3 +1204,28 @@ def finish_employee_leave(employee_id, method="pin", confirm_incident=False, now
             "timestamp": timestamp, "duration_seconds": duration_seconds,
             "status": status, "incident": int(unexpected),
         }
+
+
+def defer_employee_leave_return(employee_id):
+    """Marca un retorn oblidat sense atribuir-li cap hora fictícia."""
+    with get_connection() as db:
+        employee = db.execute(
+            "SELECT id FROM employee WHERE id = ? AND active = 1", (employee_id,)
+        ).fetchone()
+        if employee is None:
+            raise ValueError("Treballador no trobat o inactiu")
+        leave = db.execute("""
+            SELECT id FROM employee_leave
+            WHERE employee_id = ? AND record_state = 'open'
+            ORDER BY id DESC LIMIT 1
+        """, (employee_id,)).fetchone()
+        if leave is None:
+            raise ValueError("No hi ha cap permís obert")
+        db.execute("""
+            UPDATE employee_leave
+            SET record_state = 'needs_regularization',
+                requires_supervisor = 1, status = 'pending'
+            WHERE id = ?
+        """, (leave["id"],))
+        return {"ok": True, "leave_id": leave["id"],
+                "record_state": "needs_regularization", "status": "pending"}
