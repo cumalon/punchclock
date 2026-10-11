@@ -1025,3 +1025,40 @@ def list_active_leave_types():
             ORDER BY name COLLATE NOCASE, id
         """).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_employee_leave_context(employee_id, now=None):
+    """Estat de fitxatge i permís per decidir la següent acció al terminal."""
+    now = now or datetime.now(LOCAL_TIMEZONE)
+    today = now.astimezone(LOCAL_TIMEZONE).date()
+    with get_connection() as db:
+        employee = db.execute(
+            "SELECT id FROM employee WHERE id = ? AND active = 1", (employee_id,)
+        ).fetchone()
+        if employee is None:
+            return None
+        last = db.execute("""
+            SELECT id, type, timestamp FROM punch WHERE employee_id = ?
+            ORDER BY utc_timestamp_sort_key(timestamp) DESC, id DESC LIMIT 1
+        """, (employee_id,)).fetchone()
+        open_leave = db.execute("""
+            SELECT el.id, el.leave_type_id, lt.name AS leave_type_name,
+                   el.started_at, el.record_state
+            FROM employee_leave el JOIN leave_type lt ON lt.id = el.leave_type_id
+            WHERE el.employee_id = ? AND el.record_state = 'open'
+            ORDER BY el.id DESC LIMIT 1
+        """, (employee_id,)).fetchone()
+
+    previous_day_entry = (
+        last is not None and last["type"] == "entrada"
+        and parse_local_timestamp(last["timestamp"]).astimezone(LOCAL_TIMEZONE).date() < today
+    )
+    suggested = None
+    if not previous_day_entry:
+        suggested = "sortida" if last is not None and last["type"] == "entrada" else "entrada"
+    return {
+        "last_punch": dict(last) if last is not None else None,
+        "open_leave": dict(open_leave) if open_leave is not None else None,
+        "requires_direction_choice": bool(previous_day_entry and open_leave is None),
+        "suggested_direction": None if open_leave is not None else suggested,
+    }
