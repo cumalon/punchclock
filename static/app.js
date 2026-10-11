@@ -11,6 +11,8 @@ let usbAdminPin = "";
 const pinScreen = document.getElementById("pin-screen");
 const punchScreen = document.getElementById("punch-screen");
 const leaveScreen = document.getElementById("leave-screen");
+const leaveConfirmScreen = document.getElementById("leave-confirm-screen");
+let leaveContext = null;
 const leaveOptionsSelect = document.getElementById("leave-options-select");
 const continueLeaveOptions = document.getElementById("continue-leave-options");
 const leaveOptionsMessage = document.getElementById("leave-options-message");
@@ -105,6 +107,9 @@ function showPinScreen() {
 
     punchScreen.classList.add("hidden");
     leaveScreen.classList.add("hidden");
+    leaveConfirmScreen.classList.add("hidden");
+    leaveContext = null;
+    leaveContext = null;
     leaveOptionsSelect.replaceChildren(new Option("Selecciona un permís", ""));
     leaveOptionsSelect.disabled = true;
     continueLeaveOptions.disabled = true;
@@ -393,6 +398,7 @@ async function showLeaveOptions() {
             leaveOptionsMessage.textContent = data.error || "No s'han pogut consultar els permisos";
             return;
         }
+        leaveContext = data.context;
         if (data.context.open_leave) {
             leaveOptionsMessage.textContent =
                 "Tens un permís pendent de finalitzar: " + data.context.open_leave.leave_type_name;
@@ -422,7 +428,32 @@ leaveOptionsSelect.addEventListener("change", () => {
     continueLeaveOptions.disabled = !leaveOptionsSelect.value;
 });
 continueLeaveOptions.addEventListener("click", () => {
-    if (!leaveOptionsSelect.value) return;
-    leaveOptionsMessage.textContent = "Permís seleccionat: " +
-        leaveOptionsSelect.selectedOptions[0].textContent + ". Registre encara no activat.";
+    if (!leaveOptionsSelect.value || !leaveContext) return;
+    document.getElementById("leave-confirm-name").textContent =
+        leaveOptionsSelect.selectedOptions[0].textContent;
+    const hint = document.getElementById("leave-confirm-hint");
+    const suggested = leaveContext.suggested_direction;
+    hint.textContent = leaveContext.requires_direction_choice
+        ? "Hi ha una entrada anterior sense sortida. Tria explícitament l'acció."
+        : "Acció proposada segons l'últim fitxatge:";
+    document.querySelectorAll("[data-leave-direction]").forEach(button => {
+        button.disabled = false;
+        button.style.background = !leaveContext.requires_direction_choice &&
+            button.dataset.leaveDirection === suggested ? "var(--accent)" : "";
+    });
+    document.getElementById("leave-confirm-message").textContent =
+        "Prova de navegació: no es registrarà cap fitxatge.";
+    leaveScreen.classList.add("hidden");
+    leaveConfirmScreen.classList.remove("hidden");
+});
+document.querySelectorAll("[data-leave-direction]").forEach(button => {
+    button.addEventListener("click", () => {
+        document.getElementById("leave-confirm-message").textContent =
+            (button.dataset.leaveDirection === "entrada" ? "Entrada" : "Sortida") +
+            " amb permís seleccionada. Registre encara no activat.";
+    });
+});
+document.getElementById("leave-confirm-back").addEventListener("click", () => {
+    leaveConfirmScreen.classList.add("hidden");
+    leaveScreen.classList.remove("hidden");
 });
