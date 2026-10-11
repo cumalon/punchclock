@@ -1013,3 +1013,43 @@ input[type="checkbox"] {
     #web-users .web-user-row { grid-template-columns: 1fr; }
     #web-users .web-user-actions { justify-content: flex-start; }
 }
+
+/* Inline password reset editor */
+#web-users .web-user-password-form {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+    gap: 12px 16px;
+    padding: 18px;
+    background: #f7f6f1;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+}
+#web-users .web-user-password-form.hidden { display: none; }
+#web-users .web-user-password-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+#web-users .web-user-password-form input {
+    width: 100%;
+    box-sizing: border-box;
+}
+#web-users .web-user-password-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+#web-users .web-user-password-actions button {
+    width: auto;
+    margin: 0;
+}
+#web-users .web-user-password-form .message {
+    grid-column: 1 / -1;
+    margin: 0;
+}
+@media (max-width: 760px) {
+    #web-users .web-user-password-form { grid-template-columns: 1fr; }
+}
