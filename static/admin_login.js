@@ -11,7 +11,7 @@ loginForm.addEventListener("submit", async event => {
     });
     const data = await response.json();
     if (response.ok) {
-        window.location.href = "/admin";
+        window.location.href = data.must_change_password ? "/admin/change-password" : "/admin";
     } else {
         document.getElementById("login-message").textContent = data.error;
     }
