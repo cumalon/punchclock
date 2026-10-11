@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from timeclock import database
 
 
@@ -57,10 +59,16 @@ def test_finish_incident_requires_confirmation(client, employee):
         )
     started = database.start_employee_leave(worker["id"], kind, "sortida")
     assert started["ok"]
+    # Make the unexpected entry later than the leave start, regardless of today's date.
     with database.get_connection() as db:
+        started_at = db.execute(
+            "SELECT started_at FROM employee_leave WHERE id = ?",
+            (started["leave_id"],),
+        ).fetchone()["started_at"]
+        unexpected_at = datetime.fromisoformat(started_at) + timedelta(seconds=1)
         db.execute(
             "INSERT INTO punch (employee_id, timestamp, type, method) VALUES (?, ?, 'entrada', 'pin')",
-            (worker["id"], "2026-10-11T09:00:00+02:00"),
+            (worker["id"], unexpected_at.isoformat(timespec="seconds")),
         )
     token = _token(client)
     response = client.post("/api/leave/finish", json={"identification_token": token})
