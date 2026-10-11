@@ -162,6 +162,18 @@ def init_database():
                 FOREIGN KEY (old_employee_id) REFERENCES employee(id),
                 FOREIGN KEY (new_employee_id) REFERENCES employee(id)
             );
+            CREATE TABLE IF NOT EXISTS employee_leave_decision_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                leave_id INTEGER NOT NULL REFERENCES employee_leave(id),
+                admin_user_id INTEGER NOT NULL REFERENCES admin_user(id),
+                changed_at TEXT NOT NULL,
+                previous_status TEXT NOT NULL
+                    CHECK (previous_status IN ('pending', 'approved', 'rejected')),
+                new_status TEXT NOT NULL
+                    CHECK (new_status IN ('approved', 'rejected')),
+                reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+                CHECK (previous_status != new_status)
+            );
         """)
         # Migration compatible amb els permisos creats abans del sprint 3.
         leave_columns = {
@@ -174,6 +186,10 @@ def init_database():
             "end_punch_id": "INTEGER REFERENCES punch(id)",
             "regularized_at": "TEXT",
             "regularized_by": "INTEGER REFERENCES admin_user(id)",
+            "expected_started_at": "TEXT",
+            "expected_ended_at": "TEXT",
+            "regularization_reason": "TEXT",
+            "regularization_kind": "TEXT CHECK (regularization_kind IN ('return', 'late_arrival', 'early_departure'))",
         }
         for column, definition in leave_migrations.items():
             if column not in leave_columns:
@@ -1311,3 +1327,322 @@ def punch_with_open_leave(employee_id, punch_type, return_choice=None,
             "incident": int(unexpected), "timestamp": timestamp,
             "ordinary_punch_required": False,
         }
+
+
+def list_employee_leaves_for_supervision(filter_by="all"):
+    """Consulta de permisos per al supervisor, sense modificar-ne l'estat."""
+    if filter_by not in ("all", "regularization", "approval", "history"):
+        raise ValueError("Filtre de permisos no vàlid")
+    conditions = {
+        "all": "1 = 1",
+        "regularization": "el.record_state = 'needs_regularization'",
+        "approval": "el.status = 'pending' AND el.record_state = 'finished'",
+        "history": "el.status IN ('approved', 'rejected')",
+    }
+    with get_connection() as db:
+        rows = db.execute(f"""
+            SELECT el.id, el.employee_id, e.name AS employee_name,
+                   el.leave_type_id, lt.name AS leave_type_name,
+                   el.started_at, el.ended_at, el.status, el.record_state,
+                   el.requires_supervisor, el.start_punch_id, el.end_punch_id,
+                   el.regularized_at, el.regularized_by
+            FROM employee_leave el
+            JOIN employee e ON e.id = el.employee_id
+            JOIN leave_type lt ON lt.id = el.leave_type_id
+            WHERE {conditions[filter_by]}
+            ORDER BY utc_timestamp_sort_key(el.started_at) DESC, el.id DESC
+        """).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_employee_leave_for_supervision(leave_id):
+    """Detall de permís amb fitxatges vinculats i historial de decisions."""
+    with get_connection() as db:
+        leave = db.execute("""
+            SELECT el.*, e.name AS employee_name, lt.name AS leave_type_name,
+                   lt.approval_policy, lt.max_minutes, lt.auto_approve_minutes
+            FROM employee_leave el
+            JOIN employee e ON e.id = el.employee_id
+            JOIN leave_type lt ON lt.id = el.leave_type_id
+            WHERE el.id = ?
+        """, (leave_id,)).fetchone()
+        if leave is None:
+            return None
+        punches = db.execute("""
+            SELECT id, employee_id, timestamp, type, method, incident, note
+            FROM punch
+            WHERE id IN (?, ?)
+            ORDER BY utc_timestamp_sort_key(timestamp), id
+        """, (leave["start_punch_id"], leave["end_punch_id"])).fetchall()
+        history = db.execute("""
+            SELECT h.id, h.admin_user_id, u.username AS reviewer_name,
+                   h.changed_at, h.previous_status, h.new_status, h.reason
+            FROM employee_leave_decision_history h
+            JOIN admin_user u ON u.id = h.admin_user_id
+            WHERE h.leave_id = ?
+            ORDER BY utc_timestamp_sort_key(h.changed_at), h.id
+        """, (leave_id,)).fetchall()
+    return {
+        **dict(leave),
+        "punches": [dict(row) for row in punches],
+        "decision_history": [dict(row) for row in history],
+    }
+
+
+def regularize_employee_leave_return(leave_id, returned_at, admin_user_id, reason):
+    """Completa l'hora de retorn verificada, sense crear ni alterar fitxatges."""
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("Cal indicar el motiu de la regularització")
+    if not isinstance(returned_at, str):
+        raise ValueError("Hora de retorn no vàlida")
+    try:
+        parsed_return = datetime.fromisoformat(returned_at)
+        if parsed_return.tzinfo is None or parsed_return.utcoffset() is None:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise ValueError("L'hora de retorn ha d'incloure la zona horària")
+    with get_connection() as db:
+        reviewer = db.execute("""
+            SELECT id FROM admin_user
+            WHERE id = ? AND active = 1 AND role IN ('admin', 'supervisor')
+        """, (admin_user_id,)).fetchone()
+        if reviewer is None:
+            raise ValueError("Supervisor no vàlid o inactiu")
+        leave = db.execute("""
+            SELECT id, started_at, record_state, status, start_punch_id,
+                   regularization_kind
+            FROM employee_leave WHERE id = ?
+        """, (leave_id,)).fetchone()
+        if leave is None:
+            raise ValueError("Permís no trobat")
+        if leave["record_state"] != "needs_regularization" or leave["start_punch_id"] is None:
+            raise ValueError("Aquest permís no admet regularització de retorn")
+        start_punch = db.execute(
+            "SELECT type FROM punch WHERE id = ?", (leave["start_punch_id"],)
+        ).fetchone()
+        if start_punch is None or start_punch["type"] != "sortida":
+            raise ValueError("Aquest permís no és una sortida temporal")
+        if leave["regularization_kind"] != "return":
+            raise ValueError("Cal classificar el permís com a retorn oblidat")
+        start = parse_local_timestamp(leave["started_at"]).astimezone(timezone.utc)
+        end = parsed_return.astimezone(timezone.utc)
+        if end < start or end > datetime.now(timezone.utc):
+            raise ValueError("Hora de retorn fora de l'interval vàlid")
+        # Un retorn declarat no pot ser posterior al primer fitxatge
+        # efectuat després de l'inici del permís.
+        subsequent = db.execute("""
+            SELECT timestamp FROM punch
+            WHERE employee_id = (
+                SELECT employee_id FROM employee_leave WHERE id = ?
+            ) AND id != ?
+              AND utc_timestamp_sort_key(timestamp) > ?
+            ORDER BY utc_timestamp_sort_key(timestamp), id
+            LIMIT 1
+        """, (leave_id, leave["start_punch_id"], utc_timestamp_sort_key(leave["started_at"]))).fetchone()
+        if subsequent is not None and end > parse_local_timestamp(
+            subsequent["timestamp"]
+        ).astimezone(timezone.utc):
+            raise ValueError("El retorn no pot ser posterior al següent fitxatge")
+        if leave["status"] != "pending":
+            raise ValueError("No es pot regularitzar un permís ja resolt")
+        now = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
+        db.execute("""
+            UPDATE employee_leave
+            SET ended_at = ?, record_state = 'finished',
+                requires_supervisor = 1, status = 'pending',
+                regularized_at = ?, regularized_by = ?,
+                regularization_reason = ?, regularization_kind = 'return'
+            WHERE id = ?
+        """, (returned_at, now, admin_user_id, reason.strip(), leave_id))
+    return {"ok": True, "leave_id": leave_id, "record_state": "finished",
+            "status": "pending"}
+
+
+def regularize_employee_leave_late_arrival(leave_id, expected_started_at, admin_user_id, reason):
+    """Registra l'hora prevista d'entrada sense modificar l'entrada real."""
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("Cal indicar el motiu de la regularització")
+    if not isinstance(expected_started_at, str):
+        raise ValueError("Hora prevista no vàlida")
+    try:
+        expected = datetime.fromisoformat(expected_started_at)
+        if expected.tzinfo is None or expected.utcoffset() is None:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise ValueError("L'hora prevista ha d'incloure la zona horària")
+
+    with get_connection() as db:
+        reviewer = db.execute("""
+            SELECT id FROM admin_user
+            WHERE id = ? AND active = 1 AND role IN ('admin', 'supervisor')
+        """, (admin_user_id,)).fetchone()
+        if reviewer is None:
+            raise ValueError("Supervisor no vàlid o inactiu")
+        leave = db.execute("""
+            SELECT id, started_at, record_state, status, start_punch_id
+            FROM employee_leave WHERE id = ?
+        """, (leave_id,)).fetchone()
+        if leave is None:
+            raise ValueError("Permís no trobat")
+        if leave["record_state"] != "needs_regularization" or leave["start_punch_id"] is None:
+            raise ValueError("Aquest permís no admet regularització d'arribada")
+        punch = db.execute("""
+            SELECT type, timestamp FROM punch WHERE id = ?
+        """, (leave["start_punch_id"],)).fetchone()
+        if punch is None or punch["type"] != "entrada":
+            raise ValueError("Aquest permís no correspon a una arribada")
+        actual = parse_local_timestamp(leave["started_at"]).astimezone(timezone.utc)
+        if expected.astimezone(timezone.utc) > actual:
+            raise ValueError("L'hora prevista no pot ser posterior a l'entrada real")
+        if leave["status"] != "pending":
+            raise ValueError("No es pot regularitzar un permís ja resolt")
+        now = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
+        db.execute("""
+            UPDATE employee_leave
+            SET expected_started_at = ?, ended_at = started_at,
+                regularization_kind = 'late_arrival',
+                record_state = 'finished', requires_supervisor = 1,
+                status = 'pending', regularized_at = ?, regularized_by = ?,
+                regularization_reason = ?
+            WHERE id = ?
+        """, (expected_started_at, now, admin_user_id, reason.strip(), leave_id))
+    return {"ok": True, "leave_id": leave_id, "record_state": "finished",
+            "status": "pending"}
+
+
+def regularize_employee_leave_early_departure(leave_id, expected_ended_at, admin_user_id, reason):
+    """Registra la sortida prevista sense alterar el fitxatge de sortida real."""
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("Cal indicar el motiu de la regularització")
+    if not isinstance(expected_ended_at, str):
+        raise ValueError("Hora prevista no vàlida")
+    try:
+        expected = datetime.fromisoformat(expected_ended_at)
+        if expected.tzinfo is None or expected.utcoffset() is None:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise ValueError("L'hora prevista ha d'incloure la zona horària")
+
+    with get_connection() as db:
+        reviewer = db.execute("""
+            SELECT id FROM admin_user
+            WHERE id = ? AND active = 1 AND role IN ('admin', 'supervisor')
+        """, (admin_user_id,)).fetchone()
+        if reviewer is None:
+            raise ValueError("Supervisor no vàlid o inactiu")
+        leave = db.execute("""
+            SELECT id, employee_id, started_at, record_state, status, start_punch_id,
+                   regularization_kind
+            FROM employee_leave WHERE id = ?
+        """, (leave_id,)).fetchone()
+        if leave is None:
+            raise ValueError("Permís no trobat")
+        if leave["record_state"] != "needs_regularization" or leave["start_punch_id"] is None:
+            raise ValueError("Aquest permís no admet regularització de sortida anticipada")
+        punch = db.execute(
+            "SELECT type FROM punch WHERE id = ?", (leave["start_punch_id"],)
+        ).fetchone()
+        if punch is None or punch["type"] != "sortida":
+            raise ValueError("Aquest permís no correspon a una sortida")
+        if leave["regularization_kind"] != "early_departure":
+            raise ValueError("Cal classificar el permís com a sortida anticipada")
+        start = parse_local_timestamp(leave["started_at"]).astimezone(timezone.utc)
+        end = expected.astimezone(timezone.utc)
+        if end <= start:
+            raise ValueError("L'hora prevista ha de ser posterior a la sortida real")
+        if leave["status"] != "pending":
+            raise ValueError("No es pot regularitzar un permís ja resolt")
+        next_punch = db.execute("""
+            SELECT timestamp FROM punch
+            WHERE employee_id = ? AND id != ?
+              AND utc_timestamp_sort_key(timestamp) > ?
+            ORDER BY utc_timestamp_sort_key(timestamp), id LIMIT 1
+        """, (leave["employee_id"], leave["start_punch_id"],
+              utc_timestamp_sort_key(leave["started_at"]))).fetchone()
+        if next_punch is not None and end > parse_local_timestamp(
+            next_punch["timestamp"]
+        ).astimezone(timezone.utc):
+            raise ValueError("L'hora prevista no pot superar el següent fitxatge")
+        now = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
+        db.execute("""
+            UPDATE employee_leave
+            SET expected_ended_at = ?, ended_at = ?, regularization_kind = 'early_departure',
+                record_state = 'finished',
+                requires_supervisor = 1, status = 'pending',
+                regularized_at = ?, regularized_by = ?, regularization_reason = ?
+            WHERE id = ?
+        """, (expected_ended_at, expected_ended_at, now,
+              admin_user_id, reason.strip(), leave_id))
+    return {"ok": True, "leave_id": leave_id, "record_state": "finished",
+            "status": "pending"}
+
+
+def classify_employee_leave_departure(leave_id, kind, admin_user_id):
+    """Classifica una sortida pendent abans de regularitzar-ne les hores."""
+    if kind not in ("return", "early_departure"):
+        raise ValueError("Tipus de regularització no vàlid")
+    with get_connection() as db:
+        reviewer = db.execute("""
+            SELECT id FROM admin_user
+            WHERE id = ? AND active = 1 AND role IN ('admin', 'supervisor')
+        """, (admin_user_id,)).fetchone()
+        if reviewer is None:
+            raise ValueError("Supervisor no vàlid o inactiu")
+        leave = db.execute("""
+            SELECT el.record_state, el.status, el.regularization_kind,
+                   p.type AS punch_type
+            FROM employee_leave el
+            LEFT JOIN punch p ON p.id = el.start_punch_id
+            WHERE el.id = ?
+        """, (leave_id,)).fetchone()
+        if leave is None:
+            raise ValueError("Permís no trobat")
+        if (leave["record_state"] != "needs_regularization"
+                or leave["status"] != "pending"
+                or leave["punch_type"] != "sortida"):
+            raise ValueError("El permís no és una sortida pendent de regularització")
+        if leave["regularization_kind"] is not None:
+            raise ValueError("El permís ja està classificat")
+        db.execute("""
+            UPDATE employee_leave SET regularization_kind = ?
+            WHERE id = ?
+        """, (kind, leave_id))
+    return {"ok": True, "leave_id": leave_id, "regularization_kind": kind}
+
+
+def decide_employee_leave(leave_id, new_status, admin_user_id, reason):
+    """Canvia una decisió i en conserva l'historial dins una transacció."""
+    if new_status not in ("approved", "rejected"):
+        raise ValueError("Decisió de permís no vàlida")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("Cal justificar la decisió")
+    with get_connection() as db:
+        reviewer = db.execute("""
+            SELECT id FROM admin_user
+            WHERE id = ? AND active = 1 AND role IN ('admin', 'supervisor')
+        """, (admin_user_id,)).fetchone()
+        if reviewer is None:
+            raise ValueError("Supervisor no vàlid o inactiu")
+        leave = db.execute("""
+            SELECT status, record_state FROM employee_leave WHERE id = ?
+        """, (leave_id,)).fetchone()
+        if leave is None:
+            raise ValueError("Permís no trobat")
+        if leave["record_state"] != "finished":
+            raise ValueError("Cal finalitzar o regularitzar el permís abans de decidir")
+        previous_status = leave["status"]
+        if previous_status == new_status:
+            raise ValueError("El permís ja té aquesta decisió")
+        now = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
+        db.execute("""
+            INSERT INTO employee_leave_decision_history
+                (leave_id, admin_user_id, changed_at,
+                 previous_status, new_status, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (leave_id, admin_user_id, now, previous_status,
+              new_status, reason.strip()))
+        db.execute("""
+            UPDATE employee_leave SET status = ? WHERE id = ?
+        """, (new_status, leave_id))
+    return {"ok": True, "leave_id": leave_id, "previous_status": previous_status,
+            "status": new_status}

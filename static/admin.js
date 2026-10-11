@@ -133,9 +133,11 @@ function setActionButton(button, icon, label) {
 }
 
 function showSection(section) {
-    if (isSupervisor && section !== "punches") section = "punches";
+    if (isSupervisor && !["punches", "leaves"].includes(section)) section = "punches";
     employeesSection.classList.toggle("hidden", section !== "employees");
     punchesSection.classList.toggle("hidden", section !== "punches");
+    document.getElementById("leaves-section").classList.toggle("hidden", section !== "leaves");
+    document.getElementById("leave-supervision-detail").classList.add("hidden");
     settingsSection.classList.toggle("hidden", section !== "settings");
     backupsSection.classList.toggle("hidden", section !== "backups");
     const leaveTypesSection = document.getElementById("leave-types-section");
@@ -150,6 +152,7 @@ function showSection(section) {
     document.querySelector(".page-header").classList.toggle("hidden", section !== "employees");
 
     if (section === "punches") loadPunches();
+    if (section === "leaves") loadSupervisionLeaves();
     if (section === "settings") loadSettings();
     if (section === "users") loadWebUsers();
     if (section === "leave-types") loadLeaveTypes();
@@ -259,6 +262,7 @@ async function loadPunches() {
 
 const sectionByHash = {
     "#fitxatges": "punches",
+    "#permisos-personal": "leaves",
     "#treballadors": "employees",
     "#usuaris": "users",
     "#permisos": "leave-types",
@@ -1238,3 +1242,540 @@ if (leaveTypeCreationPolicy) {
     });
     syncCreationThreshold();
 }
+
+
+const supervisionLeaveFilter = document.getElementById("leave-supervision-filter");
+const supervisionLeaveRows = document.getElementById("leave-supervision-rows");
+const supervisionLeaveMessage = document.getElementById("leave-supervision-message");
+
+async function loadSupervisionLeaves() {
+    supervisionLeaveMessage.textContent = "Carregant permisos...";
+    supervisionLeaveRows.replaceChildren();
+    try {
+        const response = await fetch("/api/admin/leaves?filter=" +
+            encodeURIComponent(supervisionLeaveFilter.value));
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || "Error de consulta");
+        for (const leave of data.leaves) {
+            const row = document.createElement("tr");
+            const cells = [
+                leave.started_at ? new Date(leave.started_at).toLocaleString("ca-ES") : "",
+                leave.employee_name,
+                leave.leave_type_name,
+                leave.record_state === "needs_regularization" ? "Per regularitzar" :
+                    leave.record_state === "open" ? "Obert" : "Finalitzat",
+                leave.status === "approved" ? "Aprovat" :
+                    leave.status === "rejected" ? "Rebutjat" : "Pendent"
+            ];
+            for (const value of cells) {
+                const cell = document.createElement("td");
+                cell.textContent = value ?? "";
+                row.appendChild(cell);
+            }
+            const actionCell = document.createElement("td");
+            const detailButton = document.createElement("button");
+            detailButton.type = "button";
+            detailButton.textContent = "Veure detall";
+            detailButton.addEventListener("click", () => loadSupervisionLeaveDetail(leave.id));
+            actionCell.appendChild(detailButton);
+            row.appendChild(actionCell);
+            supervisionLeaveRows.appendChild(row);
+        }
+        supervisionLeaveMessage.textContent = data.leaves.length ?
+            data.leaves.length + " permisos" : "No hi ha permisos en aquest filtre.";
+    } catch (error) {
+        supervisionLeaveMessage.textContent = error.message;
+    }
+}
+
+supervisionLeaveFilter.addEventListener("change", loadSupervisionLeaves);
+
+
+const supervisionLeaveDetail = document.getElementById("leave-supervision-detail");
+const supervisionLeaveDetailContent = document.getElementById("leave-supervision-detail-content");
+const supervisionLeaveDetailMessage = document.getElementById("leave-supervision-detail-message");
+
+function appendLeaveDetailLine(container, label, value) {
+    const paragraph = document.createElement("p");
+    const strong = document.createElement("strong");
+    strong.textContent = label + ": ";
+    paragraph.append(strong, document.createTextNode(value == null ? "—" : String(value)));
+    container.appendChild(paragraph);
+}
+
+const leaveStateLabels = {
+    open: "Obert",
+    finished: "Finalitzat",
+    needs_regularization: "Pendent de regularització",
+    pending: "Pendent",
+    approved: "Aprovat",
+    rejected: "Rebutjat",
+    return: "Retorn oblidat",
+    late_arrival: "Arribada tardana",
+    early_departure: "Sortida anticipada"
+};
+
+function leaveLabel(value) {
+    return value == null ? "—" : (leaveStateLabels[value] || value);
+}
+
+function leaveDate(value) {
+    if (!value) return "—";
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("ca-ES");
+}
+
+function appendLeaveClassification(container, leave) {
+    if (leave.record_state !== "needs_regularization" ||
+        leave.status !== "pending" || leave.regularization_kind ||
+        !leave.punches.some(punch =>
+            punch.id === leave.start_punch_id && punch.type === "sortida")) return;
+
+    const heading = document.createElement("h3");
+    heading.textContent = "Classificar la sortida";
+    const explanation = document.createElement("p");
+    explanation.textContent = "Indica què va passar realment. Aquesta decisió determina quines hores es podran regularitzar.";
+    const label = document.createElement("label");
+    label.textContent = "Tipus de regularització ";
+    const select = document.createElement("select");
+    for (const [value, title] of [
+        ["", "Selecciona una opció"],
+        ["return", "Retorn oblidat"],
+        ["early_departure", "Sortida anticipada"]
+    ]) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = title;
+        select.appendChild(option);
+    }
+    label.appendChild(select);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Confirmar classificació";
+    button.disabled = true;
+    select.addEventListener("change", () => { button.disabled = !select.value; });
+    button.addEventListener("click", async () => {
+        if (!select.value || !confirm("Confirmes la classificació com a " +
+                leaveLabel(select.value).toLowerCase() + "?")) return;
+        button.disabled = true;
+        supervisionLeaveDetailMessage.textContent = "Desant classificació...";
+        try {
+            const response = await fetch("/api/admin/leaves/" + leave.id + "/classify", {
+                method: "POST",
+                headers: adminHeaders({"Content-Type": "application/json"}),
+                body: JSON.stringify({kind: select.value})
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) throw new Error(data.error || "No s'ha pogut classificar");
+            await loadSupervisionLeaveDetail(leave.id);
+            await loadSupervisionLeaves();
+            supervisionLeaveDetailMessage.textContent = "Classificació desada.";
+        } catch (error) {
+            supervisionLeaveDetailMessage.textContent = error.message;
+            button.disabled = false;
+        }
+    });
+    container.append(heading, explanation, label, button);
+}
+
+function appendReturnRegularization(container, leave) {
+    if (leave.record_state !== "needs_regularization" ||
+        leave.status !== "pending" || leave.regularization_kind !== "return") return;
+
+    const heading = document.createElement("h3");
+    heading.textContent = "Regularitzar el retorn oblidat";
+    const explanation = document.createElement("p");
+    explanation.textContent = "Indica l'hora real de retorn, no l'hora actual. El fitxatge original es conservarà i el permís continuarà pendent d'aprovació.";
+    const form = document.createElement("form");
+    const dateLabel = document.createElement("label");
+    dateLabel.textContent = "Data i hora real de retorn ";
+    const dateInput = document.createElement("input");
+    dateInput.type = "datetime-local";
+    dateInput.required = true;
+    dateInput.step = "60";
+    dateLabel.appendChild(dateInput);
+    const reasonLabel = document.createElement("label");
+    reasonLabel.textContent = "Justificació ";
+    const reasonInput = document.createElement("textarea");
+    reasonInput.required = true;
+    reasonInput.rows = 3;
+    reasonInput.placeholder = "Com s'ha comprovat l'hora de retorn?";
+    reasonLabel.appendChild(reasonInput);
+    const button = document.createElement("button");
+    button.type = "submit";
+    button.textContent = "Desar regularització";
+    form.append(dateLabel, reasonLabel, button);
+    form.addEventListener("submit", async event => {
+        event.preventDefault();
+        if (!form.reportValidity() || !reasonInput.value.trim()) {
+            supervisionLeaveDetailMessage.textContent = "Cal indicar una justificació.";
+            return;
+        }
+        const local = new Date(dateInput.value);
+        if (Number.isNaN(local.getTime())) {
+            supervisionLeaveDetailMessage.textContent = "Data i hora no vàlides.";
+            return;
+        }
+        if (!confirm("Confirmes l'hora real de retorn? Aquesta operació no aprova el permís.")) return;
+        button.disabled = true;
+        supervisionLeaveDetailMessage.textContent = "Desant regularització...";
+        try {
+            const response = await fetch("/api/admin/leaves/" + leave.id + "/regularize-return", {
+                method: "POST",
+                headers: adminHeaders({"Content-Type": "application/json"}),
+                body: JSON.stringify({
+                    returned_at: local.toISOString(),
+                    reason: reasonInput.value.trim()
+                })
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) throw new Error(data.error || "No s'ha pogut regularitzar");
+            await loadSupervisionLeaveDetail(leave.id);
+            await loadSupervisionLeaves();
+            supervisionLeaveDetailMessage.textContent = "Retorn regularitzat. Permís pendent d'aprovació.";
+        } catch (error) {
+            supervisionLeaveDetailMessage.textContent = error.message;
+            button.disabled = false;
+        }
+    });
+    container.append(heading, explanation, form);
+}
+
+function appendEarlyDepartureRegularization(container, leave) {
+    if (leave.record_state !== "needs_regularization" ||
+        leave.status !== "pending" || leave.regularization_kind !== "early_departure") return;
+
+    const heading = document.createElement("h3");
+    heading.textContent = "Regularitzar la sortida anticipada";
+    const explanation = document.createElement("p");
+    explanation.textContent = "Indica l'hora prevista de finalització de jornada, posterior a la sortida real. No es modificarà cap fitxatge i el permís continuarà pendent d'aprovació.";
+    const form = document.createElement("form");
+    const dateLabel = document.createElement("label");
+    dateLabel.textContent = "Data i hora prevista de finalització ";
+    const dateInput = document.createElement("input");
+    dateInput.type = "datetime-local";
+    dateInput.required = true;
+    dateInput.step = "60";
+    dateLabel.appendChild(dateInput);
+    const reasonLabel = document.createElement("label");
+    reasonLabel.textContent = "Justificació ";
+    const reasonInput = document.createElement("textarea");
+    reasonInput.required = true;
+    reasonInput.rows = 3;
+    reasonInput.placeholder = "Com s'ha comprovat l'hora prevista de finalització?";
+    reasonLabel.appendChild(reasonInput);
+    const button = document.createElement("button");
+    button.type = "submit";
+    button.textContent = "Desar regularització";
+    form.append(dateLabel, reasonLabel, button);
+    form.addEventListener("submit", async event => {
+        event.preventDefault();
+        if (!form.reportValidity() || !reasonInput.value.trim()) {
+            supervisionLeaveDetailMessage.textContent = "Cal indicar una justificació.";
+            return;
+        }
+        const local = new Date(dateInput.value);
+        if (Number.isNaN(local.getTime())) {
+            supervisionLeaveDetailMessage.textContent = "Data i hora no vàlides.";
+            return;
+        }
+        if (!confirm("Confirmes l'hora prevista de finalització? Aquesta operació no aprova el permís.")) return;
+        button.disabled = true;
+        supervisionLeaveDetailMessage.textContent = "Desant regularització...";
+        try {
+            const response = await fetch("/api/admin/leaves/" + leave.id + "/regularize-early-departure", {
+                method: "POST",
+                headers: adminHeaders({"Content-Type": "application/json"}),
+                body: JSON.stringify({
+                    expected_ended_at: local.toISOString(),
+                    reason: reasonInput.value.trim()
+                })
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) throw new Error(data.error || "No s'ha pogut regularitzar");
+            await loadSupervisionLeaveDetail(leave.id);
+            await loadSupervisionLeaves();
+            supervisionLeaveDetailMessage.textContent = "Sortida anticipada regularitzada. Permís pendent d'aprovació.";
+        } catch (error) {
+            supervisionLeaveDetailMessage.textContent = error.message;
+            button.disabled = false;
+        }
+    });
+    container.append(heading, explanation, form);
+}
+
+function appendLateArrivalRegularization(container, leave) {
+    if (leave.record_state !== "needs_regularization" ||
+        leave.status !== "pending" || !leave.punches?.some(p => p.id === leave.start_punch_id && p.type === "entrada")) return;
+
+    const heading = document.createElement("h3");
+    heading.textContent = "Regularitzar l'arribada tardana";
+    const explanation = document.createElement("p");
+    explanation.textContent = "Indica l'hora prevista d'entrada, anterior o igual a l'entrada real. No es modificarà cap fitxatge i el permís continuarà pendent d'aprovació.";
+    const form = document.createElement("form");
+    const dateLabel = document.createElement("label");
+    dateLabel.textContent = "Data i hora prevista d'entrada ";
+    const dateInput = document.createElement("input");
+    dateInput.type = "datetime-local";
+    dateInput.required = true;
+    dateInput.step = "60";
+    dateLabel.appendChild(dateInput);
+    const reasonLabel = document.createElement("label");
+    reasonLabel.textContent = "Justificació ";
+    const reasonInput = document.createElement("textarea");
+    reasonInput.required = true;
+    reasonInput.rows = 3;
+    reasonInput.placeholder = "Com s'ha comprovat l'hora prevista d'entrada?";
+    reasonLabel.appendChild(reasonInput);
+    const button = document.createElement("button");
+    button.type = "submit";
+    button.textContent = "Desar regularització";
+    form.append(dateLabel, reasonLabel, button);
+    form.addEventListener("submit", async event => {
+        event.preventDefault();
+        if (!form.reportValidity() || !reasonInput.value.trim()) {
+            supervisionLeaveDetailMessage.textContent = "Cal indicar una justificació.";
+            return;
+        }
+        const local = new Date(dateInput.value);
+        if (Number.isNaN(local.getTime())) {
+            supervisionLeaveDetailMessage.textContent = "Data i hora no vàlides.";
+            return;
+        }
+        if (!confirm("Confirmes l'hora prevista d'entrada? Aquesta operació no aprova el permís.")) return;
+        button.disabled = true;
+        supervisionLeaveDetailMessage.textContent = "Desant regularització...";
+        try {
+            const response = await fetch("/api/admin/leaves/" + leave.id + "/regularize-late-arrival", {
+                method: "POST",
+                headers: adminHeaders({"Content-Type": "application/json"}),
+                body: JSON.stringify({
+                    expected_started_at: local.toISOString(),
+                    reason: reasonInput.value.trim()
+                })
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) throw new Error(data.error || "No s'ha pogut regularitzar");
+            await loadSupervisionLeaveDetail(leave.id);
+            await loadSupervisionLeaves();
+            supervisionLeaveDetailMessage.textContent = "Arribada tardana regularitzada. Permís pendent d'aprovació.";
+        } catch (error) {
+            supervisionLeaveDetailMessage.textContent = error.message;
+            button.disabled = false;
+        }
+    });
+    container.append(heading, explanation, form);
+}
+
+function appendLeaveDecision(container, leave) {
+    if (leave.record_state !== "finished") return;
+    const heading = document.createElement("h3");
+    heading.textContent = "Decisió del supervisor";
+    const form = document.createElement("form");
+    const actionLabel = document.createElement("label");
+    actionLabel.textContent = "Decisió ";
+    const action = document.createElement("select");
+    action.required = true;
+    const options = [
+        ["", "Selecciona una decisió"],
+        ["approved", "Aprovar"],
+        ["rejected", "Rebutjar"]
+    ];
+    for (const [value, label] of options) {
+        if (value === leave.status) continue;
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        action.appendChild(option);
+    }
+    actionLabel.appendChild(action);
+    const reasonLabel = document.createElement("label");
+    reasonLabel.textContent = "Justificació obligatòria ";
+    const reason = document.createElement("textarea");
+    reason.required = true;
+    reason.rows = 3;
+    reasonLabel.appendChild(reason);
+    const button = document.createElement("button");
+    button.type = "submit";
+    button.textContent = "Registrar decisió";
+    form.append(actionLabel, reasonLabel, button);
+    form.addEventListener("submit", async event => {
+        event.preventDefault();
+        const justification = reason.value.trim();
+        if (!form.reportValidity() || !justification || !action.value) {
+            supervisionLeaveDetailMessage.textContent = "Cal seleccionar una decisió i justificar-la.";
+            return;
+        }
+        const selected = action.value;
+        const label = selected === "approved" ? "aprovar" : "rebutjar";
+        if (!confirm("Vols " + label + " aquest permís? La decisió quedarà registrada a l'historial.")) return;
+        button.disabled = true;
+        supervisionLeaveDetailMessage.textContent = "Desant decisió...";
+        try {
+            const response = await fetch("/api/admin/leaves/" + leave.id + "/decision", {
+                method: "POST",
+                headers: adminHeaders({"Content-Type": "application/json"}),
+                body: JSON.stringify({status: selected, reason: justification})
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) throw new Error(data.error || "No s'ha pogut registrar la decisió");
+            await loadSupervisionLeaveDetail(leave.id);
+            await loadSupervisionLeaves();
+            supervisionLeaveDetailMessage.textContent = "Decisió registrada a l'historial.";
+        } catch (error) {
+            supervisionLeaveDetailMessage.textContent = error.message;
+            button.disabled = false;
+        }
+    });
+    container.append(heading, form);
+}
+
+async function loadSupervisionLeaveDetail(leaveId) {
+    supervisionLeaveDetail.classList.remove("hidden");
+    supervisionLeaveDetailContent.replaceChildren();
+    supervisionLeaveDetailMessage.textContent = "Carregant detall...";
+    try {
+        const response = await fetch("/api/admin/leaves/" + encodeURIComponent(leaveId));
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || "No s'ha pogut carregar");
+        const leave = data.leave;
+        const root = supervisionLeaveDetailContent;
+        root.classList.add("leave-detail-layout");
+        const header = document.createElement("header");
+        header.className = "leave-detail-header";
+        const identity = document.createElement("div");
+        const title = document.createElement("h3");
+        title.textContent = "Permís de " + leave.leave_type_name;
+        const subtitle = document.createElement("p");
+        subtitle.textContent = leave.employee_name + " · " + leaveDate(leave.started_at);
+        identity.append(title, subtitle);
+        const statuses = document.createElement("div");
+        statuses.className = "leave-detail-statuses";
+        for (const [value, prefix] of [[leave.status, "Decisió"], [leave.record_state, "Registre"]]) {
+            const badge = document.createElement("span");
+            badge.className = "leave-detail-status leave-detail-status-" + value;
+            badge.textContent = prefix + ": " + leaveLabel(value);
+            statuses.appendChild(badge);
+        }
+        header.append(identity, statuses);
+        root.appendChild(header);
+
+        const times = document.createElement("section");
+        times.className = "leave-detail-block";
+        const timesHeading = document.createElement("h3");
+        timesHeading.textContent = "Horaris del permís";
+        const timeGrid = document.createElement("div");
+        timeGrid.className = "leave-detail-time-grid";
+        function addTime(label, value) {
+            if (!value) return;
+            const item = document.createElement("div");
+            item.className = "leave-detail-time-card";
+            const labelNode = document.createElement("span");
+            labelNode.textContent = label;
+            const timeNode = document.createElement("strong");
+            const parsed = new Date(value);
+            timeNode.textContent = Number.isNaN(parsed.getTime()) ? value :
+                parsed.toLocaleTimeString("ca-ES", {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+            const dateNode = document.createElement("small");
+            dateNode.textContent = Number.isNaN(parsed.getTime()) ? "" : parsed.toLocaleDateString("ca-ES");
+            item.append(labelNode, timeNode, dateNode);
+            timeGrid.appendChild(item);
+        }
+        const startPunch = leave.punches.find(p => p.id === leave.start_punch_id);
+        const isArrival = startPunch?.type === "entrada";
+        addTime(isArrival ? "Entrada real" : "Sortida real", leave.started_at);
+        if (leave.regularization_kind === "late_arrival") {
+            addTime("Entrada prevista", leave.expected_started_at);
+        } else if (leave.regularization_kind === "early_departure") {
+            addTime("Finalització prevista", leave.expected_ended_at);
+        } else {
+            addTime(leave.regularization_kind === "return" ? "Retorn regularitzat" : "Retorn / final registrat", leave.ended_at);
+        }
+        times.append(timesHeading, timeGrid);
+        let durationStart = null;
+        let durationEnd = null;
+        let durationLabel = "Durada del permís";
+        if (leave.regularization_kind === "late_arrival") {
+            durationStart = leave.expected_started_at;
+            durationEnd = leave.started_at;
+            durationLabel = "Temps d'arribada tardana";
+        } else if (leave.regularization_kind === "early_departure") {
+            durationStart = leave.started_at;
+            durationEnd = leave.expected_ended_at;
+            durationLabel = "Temps de sortida anticipada";
+        } else if (!isArrival) {
+            durationStart = leave.started_at;
+            durationEnd = leave.ended_at;
+        }
+        if (durationStart && durationEnd) {
+            const seconds = Math.round((new Date(durationEnd) - new Date(durationStart)) / 1000);
+            if (Number.isFinite(seconds) && seconds >= 0) {
+                const duration = document.createElement("p");
+                duration.className = "leave-detail-duration";
+                duration.textContent = durationLabel + ": " +
+                    (seconds >= 60 ? Math.floor(seconds / 60) + " min " : "") +
+                    (seconds % 60) + " s";
+                times.appendChild(duration);
+            }
+        }
+        root.appendChild(times);
+
+        const actions = document.createElement("section");
+        actions.className = "leave-detail-block leave-detail-actions";
+
+        appendLeaveClassification(actions, leave);
+        appendReturnRegularization(actions, leave);
+        appendEarlyDepartureRegularization(actions, leave);
+        appendLateArrivalRegularization(actions, leave);
+        appendLeaveDecision(actions, leave);
+        if (leave.record_state === "open") {
+            const note = document.createElement("p");
+            note.textContent = "El permís encara és obert. No es pot prendre una decisió fins que finalitzi.";
+            actions.appendChild(note);
+        }
+        root.appendChild(actions);
+
+        const extra = document.createElement("details");
+        extra.className = "leave-detail-extra";
+        const summary = document.createElement("summary");
+        summary.textContent = "Informació de regularització, fitxatges i historial";
+        extra.appendChild(summary);
+        const detailsBody = document.createElement("div");
+        detailsBody.className = "leave-detail-extra-body";
+        appendLeaveDetailLine(detailsBody, "Tipus de regularització", leaveLabel(leave.regularization_kind));
+        appendLeaveDetailLine(detailsBody, "Motiu", leave.regularization_reason);
+        appendLeaveDetailLine(detailsBody, "Inici registrat", leaveDate(leave.started_at));
+        appendLeaveDetailLine(detailsBody, "Final registrat", leaveDate(leave.ended_at));
+        appendLeaveDetailLine(detailsBody, "Hora prevista d'entrada", leaveDate(leave.expected_started_at));
+        appendLeaveDetailLine(detailsBody, "Hora prevista de sortida", leaveDate(leave.expected_ended_at));
+        const punchHeading = document.createElement("h3");
+        punchHeading.textContent = "Fitxatges originals";
+        detailsBody.appendChild(punchHeading);
+        if (!leave.punches.length) appendLeaveDetailLine(detailsBody, "Fitxatges", "Cap");
+        for (const punch of leave.punches) {
+            appendLeaveDetailLine(detailsBody, "Fitxatge #" + punch.id,
+                leaveDate(punch.timestamp) + " · " + punch.type + (punch.incident ? " · incidència" : ""));
+        }
+        const historyHeading = document.createElement("h3");
+        historyHeading.textContent = "Historial de decisions";
+        detailsBody.appendChild(historyHeading);
+        if (!leave.decision_history.length) {
+            appendLeaveDetailLine(detailsBody, "Historial", "Sense decisions manuals");
+        }
+        for (const item of leave.decision_history) {
+            appendLeaveDetailLine(detailsBody, leaveDate(item.changed_at),
+                leaveLabel(item.previous_status) + " → " + leaveLabel(item.new_status) +
+                " · " + item.reviewer_name + " · " + item.reason);
+        }
+        extra.appendChild(detailsBody);
+        root.appendChild(extra);
+        supervisionLeaveDetailMessage.textContent = "";
+        supervisionLeaveDetail.scrollIntoView({behavior: "smooth", block: "start"});
+    } catch (error) {
+        supervisionLeaveDetailMessage.textContent = error.message;
+    }
+}
+
+document.getElementById("close-leave-supervision-detail").addEventListener("click", () => {
+    supervisionLeaveDetail.classList.add("hidden");
+});

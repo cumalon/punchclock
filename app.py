@@ -437,6 +437,11 @@ SUPERVISOR_ENDPOINTS = {
     "admin_correct_punch", "admin_review_punch_incident",
     "admin_punch_incident_reviews", "admin_punch_corrections",
     "admin_employees", "admin_change_password", "admin_logout",
+    "admin_leaves", "admin_leave_detail",
+    "admin_classify_leave",
+    "admin_regularize_leave_return",
+    "admin_regularize_leave_late_arrival", "admin_regularize_leave_early_departure",
+    "admin_decide_leave",
 }
 
 
@@ -558,6 +563,88 @@ def admin_delete_user(user_id):
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
     return jsonify({"ok": True})
+
+
+@app.get("/api/admin/leaves")
+def admin_leaves():
+    filter_by = request.args.get("filter", "all")
+    try:
+        leaves = database.list_employee_leaves_for_supervision(filter_by)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "leaves": leaves})
+
+
+@app.get("/api/admin/leaves/<int:leave_id>")
+def admin_leave_detail(leave_id):
+    leave = database.get_employee_leave_for_supervision(leave_id)
+    if leave is None:
+        return jsonify({"ok": False, "error": "Permís no trobat"}), 404
+    return jsonify({"ok": True, "leave": leave})
+
+
+@app.post("/api/admin/leaves/<int:leave_id>/classify")
+def admin_classify_leave(leave_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        result = database.classify_employee_leave_departure(
+            leave_id, data.get("kind"), session["admin_user_id"]
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify(result)
+
+
+@app.post("/api/admin/leaves/<int:leave_id>/regularize-return")
+def admin_regularize_leave_return(leave_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        result = database.regularize_employee_leave_return(
+            leave_id, data.get("returned_at"),
+            session["admin_user_id"], data.get("reason"),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify(result)
+
+
+@app.post("/api/admin/leaves/<int:leave_id>/regularize-late-arrival")
+def admin_regularize_leave_late_arrival(leave_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        result = database.regularize_employee_leave_late_arrival(
+            leave_id, data.get("expected_started_at"),
+            session["admin_user_id"], data.get("reason"),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify(result)
+
+
+@app.post("/api/admin/leaves/<int:leave_id>/regularize-early-departure")
+def admin_regularize_leave_early_departure(leave_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        result = database.regularize_employee_leave_early_departure(
+            leave_id, data.get("expected_ended_at"),
+            session["admin_user_id"], data.get("reason"),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify(result)
+
+
+@app.post("/api/admin/leaves/<int:leave_id>/decision")
+def admin_decide_leave(leave_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        result = database.decide_employee_leave(
+            leave_id, data.get("status"),
+            session["admin_user_id"], data.get("reason"),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify(result)
 
 
 @app.get("/api/admin/leave-types")
