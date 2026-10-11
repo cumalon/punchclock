@@ -1131,7 +1131,7 @@ async function loadLeaveTypes() {
             container.textContent = "Encara no hi ha tipus de permisos.";
             return;
         }
-        for (const item of data.leave_types) {
+        for (const [index, item] of data.leave_types.entries()) {
             const row = document.createElement("div");
             row.className = "leave-type-row";
             const name = document.createElement("input");
@@ -1198,11 +1198,35 @@ async function loadLeaveTypes() {
             policy.classList.add("leave-type-policy");
             max.classList.add("leave-type-minutes");
             threshold.classList.add("leave-type-minutes");
+            const moveActions = document.createElement("div");
+            moveActions.className = "leave-type-move";
+            for (const [direction, symbol, title] of [[-1, "↑", "Pujar"], [1, "↓", "Baixar"]]) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.textContent = symbol;
+                button.title = title + " " + item.name;
+                button.setAttribute("aria-label", title + " " + item.name);
+                button.disabled = index + direction < 0 || index + direction >= data.leave_types.length;
+                button.addEventListener("click", async () => {
+                    const ids = data.leave_types.map(type => type.id);
+                    const target = index + direction;
+                    [ids[index], ids[target]] = [ids[target], ids[index]];
+                    button.disabled = true;
+                    try {
+                        await leaveTypeRequest("/api/admin/leave-types/order", "PUT", { ids });
+                        await loadLeaveTypes();
+                    } catch (error) {
+                        status.textContent = error.message;
+                        button.disabled = false;
+                    }
+                });
+                moveActions.appendChild(button);
+            }
             const actions = document.createElement("div");
             actions.className = "leave-type-actions";
             actions.append(save, remove);
             status.className = "leave-type-status";
-            row.append(name, policy, max, threshold, activeLabel, actions, status);
+            row.append(moveActions, name, policy, max, threshold, activeLabel, actions, status);
             container.appendChild(row);
         }
     } catch (error) {
