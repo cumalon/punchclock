@@ -441,6 +441,7 @@ SUPERVISOR_ENDPOINTS = {
     "admin_classify_leave",
     "admin_regularize_leave_return",
     "admin_regularize_leave_late_arrival", "admin_regularize_leave_early_departure",
+    "admin_decide_leave",
 }
 
 
@@ -626,6 +627,19 @@ def admin_regularize_leave_early_departure(leave_id):
     try:
         result = database.regularize_employee_leave_early_departure(
             leave_id, data.get("expected_ended_at"),
+            session["admin_user_id"], data.get("reason"),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify(result)
+
+
+@app.post("/api/admin/leaves/<int:leave_id>/decision")
+def admin_decide_leave(leave_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        result = database.decide_employee_leave(
+            leave_id, data.get("status"),
             session["admin_user_id"], data.get("reason"),
         )
     except ValueError as error:
