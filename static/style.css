@@ -442,3 +442,11 @@ p { font-size: 1.2rem; }
         min-height: 52px;
     }
 }
+
+/* Compact touch-friendly leave selection */
+#leave-screen { max-height: calc(100dvh - 155px); overflow-y: auto; }
+.leave-select-label { display: block; margin: 18px 0 8px; font-weight: 700; text-align: left; }
+#leave-options-select { display: block; width: 100%; min-height: 56px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 11px; background: white; color: var(--ink); font-size: 1.1rem; }
+#continue-leave-options { width: 100%; min-height: 56px; margin-top: 18px; border: 1px solid var(--accent-strong); border-radius: 11px; background: var(--accent); color: var(--ink); font-size: 1.1rem; font-weight: 700; }
+#continue-leave-options:disabled { opacity: 0.45; }
+#leave-options-message { margin: 12px 0; font-size: 1rem; }
