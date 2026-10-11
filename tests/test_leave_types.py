@@ -49,7 +49,6 @@ def test_used_leave_type_cannot_be_deleted(admin_client, employee):
     {"name": "Test", "approval_policy": "unknown"},
     {"name": "Test", "approval_policy": "threshold"},
     {"name": "Test", "approval_policy": "automatic", "auto_approve_minutes": 20},
-    {"name": "Test", "approval_policy": "threshold", "auto_approve_minutes": 30, "max_minutes": 20},
     {"name": "Test", "max_minutes": -1},
     {"name": "Test", "max_minutes": True},
     {"name": "Test", "active": "false"},
@@ -83,3 +82,11 @@ def test_leave_types_persist_across_database_init(admin_client):
     assert admin_client.post("/api/admin/leave-types", json={"name": "Esmorzar"}).status_code == 201
     database.init_database()
     assert len(admin_client.get("/api/admin/leave-types").get_json()["leave_types"]) == 1
+
+
+def test_flexible_approval_threshold_can_exceed_reference_duration(admin_client):
+    response = admin_client.post("/api/admin/leave-types", json={
+        "name": "Esmorzar flexible", "approval_policy": "threshold",
+        "max_minutes": 20, "auto_approve_minutes": 30,
+    })
+    assert response.status_code == 201
