@@ -981,3 +981,35 @@ input[type="checkbox"] {
         flex-direction: column;
     }
 }
+
+/* Web user management: independent name and action columns */
+#web-users .web-user-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) auto;
+    align-items: center;
+    gap: 14px 24px;
+    padding: 16px 0;
+}
+#web-users .web-user-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+#web-users .web-user-actions button {
+    width: auto;
+    min-width: 110px;
+    max-width: none;
+    margin: 0;
+    white-space: nowrap;
+}
+#web-users .web-user-status {
+    grid-column: 1 / -1;
+    font-size: .85rem;
+    color: #74602b;
+}
+@media (max-width: 800px) {
+    #web-users .web-user-row { grid-template-columns: 1fr; }
+    #web-users .web-user-actions { justify-content: flex-start; }
+}
