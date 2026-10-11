@@ -1639,40 +1639,124 @@ async function loadSupervisionLeaveDetail(leaveId) {
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data.error || "No s'ha pogut carregar");
         const leave = data.leave;
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Treballador", leave.employee_name);
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Tipus", leave.leave_type_name);
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Inici registrat", leaveDate(leave.started_at));
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Final registrat", leaveDate(leave.ended_at));
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Hora prevista d'entrada", leaveDate(leave.expected_started_at));
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Hora prevista de sortida", leaveDate(leave.expected_ended_at));
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Estat del registre", leaveLabel(leave.record_state));
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Decisió", leaveLabel(leave.status));
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Regularització", leaveLabel(leave.regularization_kind));
-        appendLeaveDetailLine(supervisionLeaveDetailContent, "Motiu de regularització", leave.regularization_reason);
+        const root = supervisionLeaveDetailContent;
+        root.classList.add("leave-detail-layout");
+        const header = document.createElement("header");
+        header.className = "leave-detail-header";
+        const identity = document.createElement("div");
+        const title = document.createElement("h3");
+        title.textContent = "Permís de " + leave.leave_type_name;
+        const subtitle = document.createElement("p");
+        subtitle.textContent = leave.employee_name + " · " + leaveDate(leave.started_at);
+        identity.append(title, subtitle);
+        const statuses = document.createElement("div");
+        statuses.className = "leave-detail-statuses";
+        for (const [value, prefix] of [[leave.status, "Decisió"], [leave.record_state, "Registre"]]) {
+            const badge = document.createElement("span");
+            badge.className = "leave-detail-status leave-detail-status-" + value;
+            badge.textContent = prefix + ": " + leaveLabel(value);
+            statuses.appendChild(badge);
+        }
+        header.append(identity, statuses);
+        root.appendChild(header);
+
+        const times = document.createElement("section");
+        times.className = "leave-detail-block";
+        const timesHeading = document.createElement("h3");
+        timesHeading.textContent = "Horaris del permís";
+        const timeGrid = document.createElement("div");
+        timeGrid.className = "leave-detail-time-grid";
+        function addTime(label, value) {
+            if (!value) return;
+            const item = document.createElement("div");
+            item.className = "leave-detail-time-card";
+            const labelNode = document.createElement("span");
+            labelNode.textContent = label;
+            const timeNode = document.createElement("strong");
+            const parsed = new Date(value);
+            timeNode.textContent = Number.isNaN(parsed.getTime()) ? value :
+                parsed.toLocaleTimeString("ca-ES", {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+            const dateNode = document.createElement("small");
+            dateNode.textContent = Number.isNaN(parsed.getTime()) ? "" : parsed.toLocaleDateString("ca-ES");
+            item.append(labelNode, timeNode, dateNode);
+            timeGrid.appendChild(item);
+        }
+        const startPunch = leave.punches.find(p => p.id === leave.start_punch_id);
+        const isArrival = startPunch?.type === "entrada";
+        addTime(isArrival ? "Entrada real" : "Sortida real", leave.started_at);
+        if (leave.regularization_kind === "late_arrival") {
+            addTime("Entrada prevista", leave.expected_started_at);
+        } else if (leave.regularization_kind === "early_departure") {
+            addTime("Finalització prevista", leave.expected_ended_at);
+        } else {
+            addTime("Retorn / final registrat", leave.ended_at);
+        }
+        times.append(timesHeading, timeGrid);
+        if (leave.ended_at && !isArrival) {
+            const minutes = (new Date(leave.ended_at) - new Date(leave.started_at)) / 60000;
+            if (Number.isFinite(minutes) && minutes >= 0) {
+                const duration = document.createElement("p");
+                duration.className = "leave-detail-duration";
+                duration.textContent = "Durada: " + Math.floor(minutes) + " min " +
+                    Math.round((minutes % 1) * 60) + " s";
+                times.appendChild(duration);
+            }
+        }
+        root.appendChild(times);
+
+        const actions = document.createElement("section");
+        actions.className = "leave-detail-block leave-detail-actions";
+        const actionsTitle = document.createElement("h3");
+        actionsTitle.textContent = leave.record_state === "needs_regularization" ?
+            "Regularització pendent" : leave.record_state === "finished" ?
+            "Revisió del supervisor" : "Permís obert";
+        actions.appendChild(actionsTitle);
+        appendLeaveClassification(actions, leave);
+        appendReturnRegularization(actions, leave);
+        appendEarlyDepartureRegularization(actions, leave);
+        appendLateArrivalRegularization(actions, leave);
+        appendLeaveDecision(actions, leave);
+        if (leave.record_state === "open") {
+            const note = document.createElement("p");
+            note.textContent = "El permís encara és obert. No es pot prendre una decisió fins que finalitzi.";
+            actions.appendChild(note);
+        }
+        root.appendChild(actions);
+
+        const extra = document.createElement("details");
+        extra.className = "leave-detail-extra";
+        const summary = document.createElement("summary");
+        summary.textContent = "Informació de regularització, fitxatges i historial";
+        extra.appendChild(summary);
+        const detailsBody = document.createElement("div");
+        detailsBody.className = "leave-detail-extra-body";
+        appendLeaveDetailLine(detailsBody, "Tipus de regularització", leaveLabel(leave.regularization_kind));
+        appendLeaveDetailLine(detailsBody, "Motiu", leave.regularization_reason);
+        appendLeaveDetailLine(detailsBody, "Inici registrat", leaveDate(leave.started_at));
+        appendLeaveDetailLine(detailsBody, "Final registrat", leaveDate(leave.ended_at));
+        appendLeaveDetailLine(detailsBody, "Hora prevista d'entrada", leaveDate(leave.expected_started_at));
+        appendLeaveDetailLine(detailsBody, "Hora prevista de sortida", leaveDate(leave.expected_ended_at));
         const punchHeading = document.createElement("h3");
-        punchHeading.textContent = "Fitxatges vinculats";
-        supervisionLeaveDetailContent.appendChild(punchHeading);
-        if (!leave.punches.length) appendLeaveDetailLine(supervisionLeaveDetailContent, "Fitxatges", "Cap");
+        punchHeading.textContent = "Fitxatges originals";
+        detailsBody.appendChild(punchHeading);
+        if (!leave.punches.length) appendLeaveDetailLine(detailsBody, "Fitxatges", "Cap");
         for (const punch of leave.punches) {
-            appendLeaveDetailLine(supervisionLeaveDetailContent, "Fitxatge #" + punch.id,
+            appendLeaveDetailLine(detailsBody, "Fitxatge #" + punch.id,
                 leaveDate(punch.timestamp) + " · " + punch.type + (punch.incident ? " · incidència" : ""));
         }
         const historyHeading = document.createElement("h3");
         historyHeading.textContent = "Historial de decisions";
-        supervisionLeaveDetailContent.appendChild(historyHeading);
+        detailsBody.appendChild(historyHeading);
         if (!leave.decision_history.length) {
-            appendLeaveDetailLine(supervisionLeaveDetailContent, "Historial", "Sense decisions manuals");
+            appendLeaveDetailLine(detailsBody, "Historial", "Sense decisions manuals");
         }
         for (const item of leave.decision_history) {
-            appendLeaveDetailLine(supervisionLeaveDetailContent, leaveDate(item.changed_at),
+            appendLeaveDetailLine(detailsBody, leaveDate(item.changed_at),
                 leaveLabel(item.previous_status) + " → " + leaveLabel(item.new_status) +
                 " · " + item.reviewer_name + " · " + item.reason);
         }
-        appendLeaveClassification(supervisionLeaveDetailContent, leave);
-        appendReturnRegularization(supervisionLeaveDetailContent, leave);
-        appendEarlyDepartureRegularization(supervisionLeaveDetailContent, leave);
-        appendLateArrivalRegularization(supervisionLeaveDetailContent, leave);
-        appendLeaveDecision(supervisionLeaveDetailContent, leave);
+        extra.appendChild(detailsBody);
+        root.appendChild(extra);
         supervisionLeaveDetailMessage.textContent = "";
         supervisionLeaveDetail.scrollIntoView({behavior: "smooth", block: "start"});
     } catch (error) {
