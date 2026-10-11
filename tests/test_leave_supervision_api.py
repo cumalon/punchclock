@@ -253,3 +253,49 @@ def test_early_departure_regularization_api_end_to_end(admin_client, employee):
         assert db.execute(
             "SELECT timestamp FROM punch WHERE id = ?", (punch_id,)
         ).fetchone()[0] == actual_at
+
+
+def test_leave_decision_api_requires_authentication(client):
+    response = client.post(
+        "/api/admin/leaves/1/decision",
+        json={"status": "approved", "reason": "Validat"},
+    )
+    assert response.status_code == 401
+
+
+def test_leave_decision_api_rejects_invalid_status(admin_client):
+    response = admin_client.post(
+        "/api/admin/leaves/999999/decision",
+        json={"status": "unknown", "reason": "Validat"},
+    )
+    assert response.status_code == 400
+
+
+def test_leave_decision_api_records_reversals(admin_client, employee):
+    worker = employee()
+    type_id = database.create_leave_type("Permís revisable")
+    with database.get_connection() as db:
+        leave_id = db.execute("""
+            INSERT INTO employee_leave
+                (employee_id, leave_type_id, started_at, ended_at,
+                 record_state, status, requires_supervisor)
+            VALUES (?, ?, '2026-10-11T10:00:00+02:00',
+                    '2026-10-11T10:20:00+02:00', 'finished', 'pending', 1)
+        """, (worker["id"], type_id)).lastrowid
+    for status, previous in [
+        ("rejected", "pending"),
+        ("approved", "rejected"),
+        ("rejected", "approved"),
+    ]:
+        response = admin_client.post(
+            f"/api/admin/leaves/{leave_id}/decision",
+            json={"status": status, "reason": "Revisió justificada"},
+        )
+        assert response.status_code == 200
+        assert response.get_json()["previous_status"] == previous
+    detail = admin_client.get(f"/api/admin/leaves/{leave_id}").get_json()["leave"]
+    assert detail["status"] == "rejected"
+    assert len(detail["decision_history"]) == 3
+    assert [row["new_status"] for row in detail["decision_history"]] == [
+        "rejected", "approved", "rejected"
+    ]
