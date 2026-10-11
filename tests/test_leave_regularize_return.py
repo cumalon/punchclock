@@ -59,3 +59,27 @@ def test_regularization_rejects_invalid_times_and_reason(client, employee):
     ]:
         with pytest.raises(ValueError):
             database.regularize_employee_leave_return(leave_id, returned, admin_id, reason)
+
+
+def test_regularization_cannot_extend_past_next_punch(client, employee):
+    worker = employee()
+    leave_id, _, started = make_leave(worker["id"])
+    start_dt = datetime.fromisoformat(started)
+    next_punch = (start_dt + timedelta(minutes=30)).isoformat(timespec="seconds")
+    with database.get_connection() as db:
+        admin_id = db.execute(
+            "SELECT id FROM admin_user WHERE username = 'admin'"
+        ).fetchone()["id"]
+        db.execute("""
+            INSERT INTO punch (employee_id, timestamp, type, method)
+            VALUES (?, ?, 'entrada', 'pin')
+        """, (worker["id"], next_punch))
+    late_return = (start_dt + timedelta(minutes=45)).isoformat(timespec="seconds")
+    with pytest.raises(ValueError, match="següent fitxatge"):
+        database.regularize_employee_leave_return(
+            leave_id, late_return, admin_id, "Hora impossible"
+        )
+    valid_return = (start_dt + timedelta(minutes=20)).isoformat(timespec="seconds")
+    assert database.regularize_employee_leave_return(
+        leave_id, valid_return, admin_id, "Retorn confirmat"
+    )["ok"]
