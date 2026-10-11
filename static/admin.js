@@ -133,9 +133,10 @@ function setActionButton(button, icon, label) {
 }
 
 function showSection(section) {
-    if (isSupervisor && section !== "punches") section = "punches";
+    if (isSupervisor && !["punches", "leaves"].includes(section)) section = "punches";
     employeesSection.classList.toggle("hidden", section !== "employees");
     punchesSection.classList.toggle("hidden", section !== "punches");
+    document.getElementById("leaves-section").classList.toggle("hidden", section !== "leaves");
     settingsSection.classList.toggle("hidden", section !== "settings");
     backupsSection.classList.toggle("hidden", section !== "backups");
     const leaveTypesSection = document.getElementById("leave-types-section");
@@ -150,6 +151,7 @@ function showSection(section) {
     document.querySelector(".page-header").classList.toggle("hidden", section !== "employees");
 
     if (section === "punches") loadPunches();
+    if (section === "leaves") loadSupervisionLeaves();
     if (section === "settings") loadSettings();
     if (section === "users") loadWebUsers();
     if (section === "leave-types") loadLeaveTypes();
@@ -1238,3 +1240,43 @@ if (leaveTypeCreationPolicy) {
     });
     syncCreationThreshold();
 }
+
+
+const supervisionLeaveFilter = document.getElementById("leave-supervision-filter");
+const supervisionLeaveRows = document.getElementById("leave-supervision-rows");
+const supervisionLeaveMessage = document.getElementById("leave-supervision-message");
+
+async function loadSupervisionLeaves() {
+    supervisionLeaveMessage.textContent = "Carregant permisos...";
+    supervisionLeaveRows.replaceChildren();
+    try {
+        const response = await fetch("/api/admin/leaves?filter=" +
+            encodeURIComponent(supervisionLeaveFilter.value));
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || "Error de consulta");
+        for (const leave of data.leaves) {
+            const row = document.createElement("tr");
+            const cells = [
+                leave.started_at ? new Date(leave.started_at).toLocaleString("ca-ES") : "",
+                leave.employee_name,
+                leave.leave_type_name,
+                leave.record_state === "needs_regularization" ? "Per regularitzar" :
+                    leave.record_state === "open" ? "Obert" : "Finalitzat",
+                leave.status === "approved" ? "Aprovat" :
+                    leave.status === "rejected" ? "Rebutjat" : "Pendent"
+            ];
+            for (const value of cells) {
+                const cell = document.createElement("td");
+                cell.textContent = value ?? "";
+                row.appendChild(cell);
+            }
+            supervisionLeaveRows.appendChild(row);
+        }
+        supervisionLeaveMessage.textContent = data.leaves.length ?
+            data.leaves.length + " permisos" : "No hi ha permisos en aquest filtre.";
+    } catch (error) {
+        supervisionLeaveMessage.textContent = error.message;
+    }
+}
+
+supervisionLeaveFilter.addEventListener("change", loadSupervisionLeaves);
