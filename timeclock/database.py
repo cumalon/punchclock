@@ -189,6 +189,7 @@ def init_database():
             "expected_started_at": "TEXT",
             "expected_ended_at": "TEXT",
             "regularization_reason": "TEXT",
+            "regularization_kind": "TEXT CHECK (regularization_kind IN ('return', 'late_arrival', 'early_departure'))",
         }
         for column, definition in leave_migrations.items():
             if column not in leave_columns:
@@ -1447,7 +1448,7 @@ def regularize_employee_leave_return(leave_id, returned_at, admin_user_id, reaso
             SET ended_at = ?, record_state = 'finished',
                 requires_supervisor = 1, status = 'pending',
                 regularized_at = ?, regularized_by = ?,
-                regularization_reason = ?
+                regularization_reason = ?, regularization_kind = 'return'
             WHERE id = ?
         """, (returned_at, now, admin_user_id, reason.strip(), leave_id))
     return {"ok": True, "leave_id": leave_id, "record_state": "finished",
@@ -1496,6 +1497,7 @@ def regularize_employee_leave_late_arrival(leave_id, expected_started_at, admin_
         db.execute("""
             UPDATE employee_leave
             SET expected_started_at = ?, ended_at = started_at,
+                regularization_kind = 'late_arrival',
                 record_state = 'finished', requires_supervisor = 1,
                 status = 'pending', regularized_at = ?, regularized_by = ?,
                 regularization_reason = ?
@@ -1558,7 +1560,8 @@ def regularize_employee_leave_early_departure(leave_id, expected_ended_at, admin
         now = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
         db.execute("""
             UPDATE employee_leave
-            SET expected_ended_at = ?, ended_at = ?, record_state = 'finished',
+            SET expected_ended_at = ?, ended_at = ?, regularization_kind = 'early_departure',
+                record_state = 'finished',
                 requires_supervisor = 1, status = 'pending',
                 regularized_at = ?, regularized_by = ?, regularization_reason = ?
             WHERE id = ?
