@@ -1144,8 +1144,8 @@ async function loadLeaveTypes() {
             policy.value = item.approval_policy;
             const max = document.createElement("input");
             max.type = "number"; max.min = "1"; max.step = "1";
-            max.placeholder = "Durada màxima (min)";
-            max.setAttribute("aria-label", "Durada màxima en minuts");
+            max.placeholder = "Durada de referència (min)";
+            max.setAttribute("aria-label", "Durada de referència en minuts");
             max.value = item.max_minutes ?? "";
             const threshold = document.createElement("input");
             threshold.type = "number"; threshold.min = "1"; threshold.step = "1";
