@@ -1409,7 +1409,8 @@ def regularize_employee_leave_return(leave_id, returned_at, admin_user_id, reaso
         if reviewer is None:
             raise ValueError("Supervisor no vàlid o inactiu")
         leave = db.execute("""
-            SELECT id, started_at, record_state, status, start_punch_id
+            SELECT id, started_at, record_state, status, start_punch_id,
+                   regularization_kind
             FROM employee_leave WHERE id = ?
         """, (leave_id,)).fetchone()
         if leave is None:
@@ -1421,6 +1422,8 @@ def regularize_employee_leave_return(leave_id, returned_at, admin_user_id, reaso
         ).fetchone()
         if start_punch is None or start_punch["type"] != "sortida":
             raise ValueError("Aquest permís no és una sortida temporal")
+        if leave["regularization_kind"] != "return":
+            raise ValueError("Cal classificar el permís com a retorn oblidat")
         start = parse_local_timestamp(leave["started_at"]).astimezone(timezone.utc)
         end = parsed_return.astimezone(timezone.utc)
         if end < start or end > datetime.now(timezone.utc):
@@ -1528,7 +1531,8 @@ def regularize_employee_leave_early_departure(leave_id, expected_ended_at, admin
         if reviewer is None:
             raise ValueError("Supervisor no vàlid o inactiu")
         leave = db.execute("""
-            SELECT id, employee_id, started_at, record_state, status, start_punch_id
+            SELECT id, employee_id, started_at, record_state, status, start_punch_id,
+                   regularization_kind
             FROM employee_leave WHERE id = ?
         """, (leave_id,)).fetchone()
         if leave is None:
@@ -1540,6 +1544,8 @@ def regularize_employee_leave_early_departure(leave_id, expected_ended_at, admin
         ).fetchone()
         if punch is None or punch["type"] != "sortida":
             raise ValueError("Aquest permís no correspon a una sortida")
+        if leave["regularization_kind"] != "early_departure":
+            raise ValueError("Cal classificar el permís com a sortida anticipada")
         start = parse_local_timestamp(leave["started_at"]).astimezone(timezone.utc)
         end = expected.astimezone(timezone.utc)
         if end <= start:
