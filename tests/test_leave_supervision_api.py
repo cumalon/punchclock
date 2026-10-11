@@ -78,3 +78,19 @@ def test_classification_api_persists_change(admin_client, employee):
     assert response.status_code == 200
     detail = admin_client.get(f"/api/admin/leaves/{leave_id}")
     assert detail.get_json()["leave"]["regularization_kind"] == "return"
+
+
+def test_regularize_return_api_requires_authentication(client):
+    response = client.post(
+        "/api/admin/leaves/1/regularize-return",
+        json={"returned_at": "2026-10-11T10:20:00+02:00", "reason": "Verificat"},
+    )
+    assert response.status_code == 401
+
+
+def test_regularize_return_api_rejects_invalid_data(admin_client):
+    response = admin_client.post(
+        "/api/admin/leaves/999999/regularize-return",
+        json={"returned_at": "not-a-date", "reason": "Verificat"},
+    )
+    assert response.status_code == 400
