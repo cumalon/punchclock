@@ -37,3 +37,21 @@ def test_supervisor_can_read_leaves_but_not_admin_settings(client):
     assert detail.status_code == 404
     settings = client.get("/api/admin/settings")
     assert settings.status_code == 403
+
+
+def test_classification_api_requires_authentication_and_csrf(client):
+    response = client.post("/api/admin/leaves/1/classify", json={"kind": "return"})
+    assert response.status_code == 401
+    login = client.post("/api/admin/login", json={
+        "username": "admin", "password": "test-administrator-password"
+    })
+    assert login.status_code == 200
+    response = client.post("/api/admin/leaves/1/classify", json={"kind": "return"})
+    assert response.status_code == 403
+
+
+def test_classification_api_rejects_invalid_kind(admin_client):
+    response = admin_client.post(
+        "/api/admin/leaves/999999/classify", json={"kind": "invalid"}
+    )
+    assert response.status_code == 400
