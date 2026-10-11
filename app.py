@@ -1238,6 +1238,29 @@ def terminal_leave_start():
     return jsonify(result)
 
 
+@app.post("/api/leave/finish")
+def terminal_leave_finish():
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("identification_token", ""))
+    identification = get_identification(token)
+    if identification is None:
+        return jsonify({"ok": False, "error": "Identificació no vàlida o caducada"}), 401
+    try:
+        result = database.finish_employee_leave(
+            identification["employee_id"],
+            method=identification["method"],
+            confirm_incident=data.get("confirm_incident") is True,
+        )
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+    if not result["ok"]:
+        if result.get("confirmation_required"):
+            identification["expires_at"] = time.monotonic() + IDENTIFICATION_TTL_SECONDS
+        return jsonify(result), 409
+    identification_tokens.pop(token, None)
+    return jsonify(result)
+
+
 @app.post("/api/punch")
 def punch():
     data = request.get_json(silent=True) or {}
