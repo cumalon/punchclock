@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>TimeClockPi</title>
-    <link rel="stylesheet" href="/static/style.css?v=6.6">
+    <link rel="stylesheet" href="/static/style.css?v=6.7">
 </head>
 <body>
     <main class="screen">
@@ -59,7 +59,9 @@
         <section id="leave-screen" class="kiosk-card hidden">
             <h1>Permisos disponibles</h1>
             <p id="leave-options-message"></p>
-            <div id="leave-options-list" class="punch-actions"></div>
+            <label for="leave-options-select" class="leave-select-label">Tipus de permís</label>
+            <select id="leave-options-select" disabled><option value="">Selecciona un permís</option></select>
+            <button id="continue-leave-options" type="button" disabled>CONTINUAR</button>
             <button id="cancel-leave-options" class="secondary-action" type="button">TORNAR</button>
         </section>
     </main>
@@ -84,6 +86,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=6.5"></script>
+    <script src="/static/app.js?v=6.6"></script>
 </body>
 </html>
