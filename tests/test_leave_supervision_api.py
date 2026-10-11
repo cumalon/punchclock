@@ -55,3 +55,26 @@ def test_classification_api_rejects_invalid_kind(admin_client):
         "/api/admin/leaves/999999/classify", json={"kind": "invalid"}
     )
     assert response.status_code == 400
+
+
+def test_classification_api_persists_change(admin_client, employee):
+    worker = employee()
+    type_id = database.create_leave_type("Esmorzar")
+    with database.get_connection() as db:
+        punch_id = db.execute("""
+            INSERT INTO punch (employee_id, timestamp, type, method)
+            VALUES (?, '2026-10-11T10:00:00+02:00', 'sortida', 'pin')
+        """, (worker["id"],)).lastrowid
+        leave_id = db.execute("""
+            INSERT INTO employee_leave
+                (employee_id, leave_type_id, started_at, record_state,
+                 requires_supervisor, start_punch_id)
+            VALUES (?, ?, '2026-10-11T10:00:00+02:00',
+                    'needs_regularization', 1, ?)
+        """, (worker["id"], type_id, punch_id)).lastrowid
+    response = admin_client.post(
+        f"/api/admin/leaves/{leave_id}/classify", json={"kind": "return"}
+    )
+    assert response.status_code == 200
+    detail = admin_client.get(f"/api/admin/leaves/{leave_id}")
+    assert detail.get_json()["leave"]["regularization_kind"] == "return"
