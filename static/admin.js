@@ -1567,6 +1567,69 @@ function appendLateArrivalRegularization(container, leave) {
     container.append(heading, explanation, form);
 }
 
+function appendLeaveDecision(container, leave) {
+    if (leave.record_state !== "finished") return;
+    const heading = document.createElement("h3");
+    heading.textContent = "Decisió del supervisor";
+    const form = document.createElement("form");
+    const actionLabel = document.createElement("label");
+    actionLabel.textContent = "Decisió ";
+    const action = document.createElement("select");
+    action.required = true;
+    const options = [
+        ["", "Selecciona una decisió"],
+        ["approved", "Aprovar"],
+        ["rejected", "Rebutjar"]
+    ];
+    for (const [value, label] of options) {
+        if (value === leave.status) continue;
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        action.appendChild(option);
+    }
+    actionLabel.appendChild(action);
+    const reasonLabel = document.createElement("label");
+    reasonLabel.textContent = "Justificació obligatòria ";
+    const reason = document.createElement("textarea");
+    reason.required = true;
+    reason.rows = 3;
+    reasonLabel.appendChild(reason);
+    const button = document.createElement("button");
+    button.type = "submit";
+    button.textContent = "Registrar decisió";
+    form.append(actionLabel, reasonLabel, button);
+    form.addEventListener("submit", async event => {
+        event.preventDefault();
+        const justification = reason.value.trim();
+        if (!form.reportValidity() || !justification || !action.value) {
+            supervisionLeaveDetailMessage.textContent = "Cal seleccionar una decisió i justificar-la.";
+            return;
+        }
+        const selected = action.value;
+        const label = selected === "approved" ? "aprovar" : "rebutjar";
+        if (!confirm("Vols " + label + " aquest permís? La decisió quedarà registrada a l'historial.")) return;
+        button.disabled = true;
+        supervisionLeaveDetailMessage.textContent = "Desant decisió...";
+        try {
+            const response = await fetch("/api/admin/leaves/" + leave.id + "/decision", {
+                method: "POST",
+                headers: adminHeaders({"Content-Type": "application/json"}),
+                body: JSON.stringify({status: selected, reason: justification})
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) throw new Error(data.error || "No s'ha pogut registrar la decisió");
+            await loadSupervisionLeaveDetail(leave.id);
+            await loadSupervisionLeaves();
+            supervisionLeaveDetailMessage.textContent = "Decisió registrada a l'historial.";
+        } catch (error) {
+            supervisionLeaveDetailMessage.textContent = error.message;
+            button.disabled = false;
+        }
+    });
+    container.append(heading, form);
+}
+
 async function loadSupervisionLeaveDetail(leaveId) {
     supervisionLeaveDetail.classList.remove("hidden");
     supervisionLeaveDetailContent.replaceChildren();
@@ -1609,6 +1672,7 @@ async function loadSupervisionLeaveDetail(leaveId) {
         appendReturnRegularization(supervisionLeaveDetailContent, leave);
         appendEarlyDepartureRegularization(supervisionLeaveDetailContent, leave);
         appendLateArrivalRegularization(supervisionLeaveDetailContent, leave);
+        appendLeaveDecision(supervisionLeaveDetailContent, leave);
         supervisionLeaveDetailMessage.textContent = "";
         supervisionLeaveDetail.scrollIntoView({behavior: "smooth", block: "start"});
     } catch (error) {
