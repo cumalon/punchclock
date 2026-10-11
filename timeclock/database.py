@@ -929,8 +929,6 @@ def _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minute
         raise ValueError("Cal indicar el límit d'aprovació automàtica")
     if approval_policy != "threshold" and auto_approve_minutes is not None:
         raise ValueError("Aquest tipus no admet un límit d'aprovació automàtica")
-    if max_minutes is not None and auto_approve_minutes is not None and auto_approve_minutes > max_minutes:
-        raise ValueError("El límit automàtic no pot superar la durada màxima")
     return name
 
 
