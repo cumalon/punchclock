@@ -450,3 +450,23 @@ p { font-size: 1.2rem; }
 #continue-leave-options { width: 100%; min-height: 56px; margin-top: 18px; border: 1px solid var(--accent-strong); border-radius: 11px; background: var(--accent); color: var(--ink); font-size: 1.1rem; font-weight: 700; }
 #continue-leave-options:disabled { opacity: 0.45; }
 #leave-options-message { margin: 12px 0; font-size: 1rem; }
+
+/* Final irreversible action: visually distinct from direction choices */
+#leave-confirm-screen { max-height: calc(100dvh - 155px); overflow-y: auto; }
+#leave-register:not(.hidden) {
+    display: block;
+    width: 100%;
+    min-height: 76px;
+    margin-top: 24px;
+    padding: 14px 12px;
+    border: 3px solid #14532d;
+    border-radius: 14px;
+    background: #166534;
+    color: #ffffff;
+    font-size: 1.25rem;
+    font-weight: 800;
+    letter-spacing: 0.025em;
+    box-shadow: 0 4px 0 #14532d;
+}
+#leave-register:disabled { opacity: 0.65; box-shadow: none; }
+#leave-confirm-message { margin-top: 18px; font-weight: 600; }
