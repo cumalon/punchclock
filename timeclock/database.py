@@ -1424,6 +1424,21 @@ def regularize_employee_leave_return(leave_id, returned_at, admin_user_id, reaso
         end = parsed_return.astimezone(timezone.utc)
         if end < start or end > datetime.now(timezone.utc):
             raise ValueError("Hora de retorn fora de l'interval vàlid")
+        # Un retorn declarat no pot ser posterior al primer fitxatge
+        # efectuat després de l'inici del permís.
+        subsequent = db.execute("""
+            SELECT timestamp FROM punch
+            WHERE employee_id = (
+                SELECT employee_id FROM employee_leave WHERE id = ?
+            ) AND id != ?
+              AND utc_timestamp_sort_key(timestamp) > ?
+            ORDER BY utc_timestamp_sort_key(timestamp), id
+            LIMIT 1
+        """, (leave_id, leave["start_punch_id"], utc_timestamp_sort_key(leave["started_at"]))).fetchone()
+        if subsequent is not None and end > parse_local_timestamp(
+            subsequent["timestamp"]
+        ).astimezone(timezone.utc):
+            raise ValueError("El retorn no pot ser posterior al següent fitxatge")
         if leave["status"] != "pending":
             raise ValueError("No es pot regularitzar un permís ja resolt")
         now = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
