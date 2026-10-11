@@ -13,6 +13,8 @@ const punchScreen = document.getElementById("punch-screen");
 const leaveScreen = document.getElementById("leave-screen");
 const leaveConfirmScreen = document.getElementById("leave-confirm-screen");
 let leaveContext = null;
+let selectedLeaveDirection = null;
+let leaveRegisterBusy = false;
 const leaveOptionsSelect = document.getElementById("leave-options-select");
 const continueLeaveOptions = document.getElementById("continue-leave-options");
 const leaveOptionsMessage = document.getElementById("leave-options-message");
@@ -109,7 +111,7 @@ function showPinScreen() {
     leaveScreen.classList.add("hidden");
     leaveConfirmScreen.classList.add("hidden");
     leaveContext = null;
-    leaveContext = null;
+    selectedLeaveDirection = null;
     leaveOptionsSelect.replaceChildren(new Option("Selecciona un permís", ""));
     leaveOptionsSelect.disabled = true;
     continueLeaveOptions.disabled = true;
@@ -441,17 +443,102 @@ continueLeaveOptions.addEventListener("click", () => {
         button.style.background = !leaveContext.requires_direction_choice &&
             button.dataset.leaveDirection === suggested ? "var(--accent)" : "";
     });
+    selectedLeaveDirection = null;
+    const registerButton = document.getElementById("leave-register");
+    registerButton.classList.add("hidden");
+    registerButton.textContent = "CONFIRMAR REGISTRE";
+    registerButton.onclick = null;
+    registerButton.disabled = false;
+    document.getElementById("leave-confirm-back").disabled = false;
     document.getElementById("leave-confirm-message").textContent =
-        "Prova de navegació: no es registrarà cap fitxatge.";
+        "Selecciona una direcció abans de confirmar el registre.";
     leaveScreen.classList.add("hidden");
     leaveConfirmScreen.classList.remove("hidden");
 });
 document.querySelectorAll("[data-leave-direction]").forEach(button => {
     button.addEventListener("click", () => {
+        if (leaveRegisterBusy) return;
+        selectedLeaveDirection = button.dataset.leaveDirection;
         document.getElementById("leave-confirm-message").textContent =
-            (button.dataset.leaveDirection === "entrada" ? "Entrada" : "Sortida") +
-            " amb permís seleccionada. Registre encara no activat.";
+            (selectedLeaveDirection === "entrada" ? "Entrada" : "Sortida") +
+            " amb permís. Prem CONFIRMAR REGISTRE per desar-ho.";
+        document.getElementById("leave-register").classList.remove("hidden");
     });
+});
+document.getElementById("leave-register").addEventListener("click", async () => {
+    if (leaveRegisterBusy || !selectedLeaveDirection || !leaveOptionsSelect.value ||
+        !identificationToken) return;
+    leaveRegisterBusy = true;
+    const registerButton = document.getElementById("leave-register");
+    const backButton = document.getElementById("leave-confirm-back");
+    registerButton.disabled = true;
+    backButton.disabled = true;
+    document.querySelectorAll("[data-leave-direction]").forEach(b => b.disabled = true);
+    const message = document.getElementById("leave-confirm-message");
+    message.textContent = "Registrant permís...";
+    try {
+        const response = await fetch("/api/leave/start", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                identification_token: identificationToken,
+                leave_type_id: Number(leaveOptionsSelect.value),
+                type: selectedLeaveDirection
+            })
+        });
+        const data = await response.json();
+        if (data.ok) {
+            identificationToken = null;
+            message.textContent = "Permís i fitxatge registrats correctament.";
+            playPunchConfirmationSound();
+            setTimeout(showPinScreen, 3000);
+        } else if (data.confirmation_required) {
+            message.textContent = (data.error || "Incidència de fitxatge") +
+                ". No s'ha registrat res. Cal confirmar la incidència.";
+            registerButton.textContent = "CONFIRMAR INCIDÈNCIA I REGISTRAR";
+            registerButton.onclick = async () => {
+                if (leaveRegisterBusy) return;
+                leaveRegisterBusy = true;
+                registerButton.disabled = true;
+                try {
+                    const retry = await fetch("/api/leave/start", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({
+                            identification_token: identificationToken,
+                            leave_type_id: Number(leaveOptionsSelect.value),
+                            type: selectedLeaveDirection,
+                            confirm_incident: true
+                        })
+                    });
+                    const result = await retry.json();
+                    if (result.ok) {
+                        identificationToken = null;
+                        message.textContent = "Permís registrat amb incidència pendent de revisió.";
+                        playPunchConfirmationSound();
+                        setTimeout(showPinScreen, 3000);
+                    } else {
+                        message.textContent = result.error || "No s'ha pogut registrar";
+                        registerButton.disabled = false;
+                    }
+                } catch {
+                    message.textContent = "Error de connexió. Comprova el registre abans de repetir.";
+                } finally {
+                    leaveRegisterBusy = false;
+                }
+            };
+            registerButton.disabled = false;
+        } else {
+            message.textContent = data.error || "No s'ha pogut registrar el permís";
+            registerButton.disabled = false;
+            backButton.disabled = false;
+        }
+    } catch {
+        message.textContent = "Error de connexió. Comprova el registre abans de repetir.";
+        backButton.disabled = false;
+    } finally {
+        leaveRegisterBusy = false;
+    }
 });
 document.getElementById("leave-confirm-back").addEventListener("click", () => {
     leaveConfirmScreen.classList.add("hidden");
