@@ -139,3 +139,34 @@ def test_regularize_return_api_preserves_punch_and_pending_status(admin_client, 
         assert db.execute(
             "SELECT timestamp FROM punch WHERE id = ?", (punch_id,)
         ).fetchone()[0] == start_at
+
+
+def test_regularize_late_arrival_api_requires_authentication(client):
+    response = client.post(
+        "/api/admin/leaves/1/regularize-late-arrival",
+        json={"expected_started_at": "2026-10-11T09:00:00+02:00",
+              "reason": "Hora prevista verificada"},
+    )
+    assert response.status_code == 401
+
+
+def test_regularize_early_departure_api_requires_authentication(client):
+    response = client.post(
+        "/api/admin/leaves/1/regularize-early-departure",
+        json={"expected_ended_at": "2026-10-11T17:00:00+02:00",
+              "reason": "Hora prevista verificada"},
+    )
+    assert response.status_code == 401
+
+
+def test_regularization_apis_reject_invalid_input(admin_client):
+    late = admin_client.post(
+        "/api/admin/leaves/999999/regularize-late-arrival",
+        json={"expected_started_at": "invalid", "reason": "Verificat"},
+    )
+    early = admin_client.post(
+        "/api/admin/leaves/999999/regularize-early-departure",
+        json={"expected_ended_at": "invalid", "reason": "Verificat"},
+    )
+    assert late.status_code == 400
+    assert early.status_code == 400
