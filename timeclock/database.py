@@ -162,6 +162,18 @@ def init_database():
                 FOREIGN KEY (old_employee_id) REFERENCES employee(id),
                 FOREIGN KEY (new_employee_id) REFERENCES employee(id)
             );
+            CREATE TABLE IF NOT EXISTS employee_leave_decision_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                leave_id INTEGER NOT NULL REFERENCES employee_leave(id),
+                admin_user_id INTEGER NOT NULL REFERENCES admin_user(id),
+                changed_at TEXT NOT NULL,
+                previous_status TEXT NOT NULL
+                    CHECK (previous_status IN ('pending', 'approved', 'rejected')),
+                new_status TEXT NOT NULL
+                    CHECK (new_status IN ('approved', 'rejected')),
+                reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+                CHECK (previous_status != new_status)
+            );
         """)
         # Migration compatible amb els permisos creats abans del sprint 3.
         leave_columns = {
