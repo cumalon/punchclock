@@ -378,7 +378,9 @@ async function showLeaveOptions() {
     if (!identificationToken) return;
     punchScreen.classList.add("hidden");
     leaveScreen.classList.remove("hidden");
-    leaveOptionsList.replaceChildren();
+    leaveOptionsSelect.replaceChildren(new Option("Selecciona un permís", ""));
+    leaveOptionsSelect.disabled = true;
+    continueLeaveOptions.disabled = true;
     leaveOptionsMessage.textContent = "Carregant permisos...";
     try {
         const response = await fetch("/api/leave/options", {
