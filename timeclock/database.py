@@ -1062,3 +1062,82 @@ def get_employee_leave_context(employee_id, now=None):
         "requires_direction_choice": bool(previous_day_entry and open_leave is None),
         "suggested_direction": None if open_leave is not None else suggested,
     }
+
+
+def start_employee_leave(employee_id, leave_type_id, punch_type, method="pin",
+                         confirm_incident=False, now=None):
+    """Desa atòmicament el fitxatge i el permís que s'inicia."""
+    if punch_type not in ("entrada", "sortida"):
+        raise ValueError("Tipus de fitxatge no vàlid")
+    if method != "pin":
+        raise ValueError("Mètode de registre no vàlid")
+    now = now or datetime.now(LOCAL_TIMEZONE)
+    timestamp = now.astimezone(LOCAL_TIMEZONE).isoformat(timespec="seconds")
+    today = now.astimezone(LOCAL_TIMEZONE).date()
+
+    with get_connection() as db:
+        employee = db.execute(
+            "SELECT id, name FROM employee WHERE id = ? AND active = 1",
+            (employee_id,),
+        ).fetchone()
+        if employee is None:
+            raise ValueError("Treballador no trobat o inactiu")
+        leave_type = db.execute(
+            "SELECT id FROM leave_type WHERE id = ? AND active = 1",
+            (leave_type_id,),
+        ).fetchone()
+        if leave_type is None:
+            raise ValueError("Tipus de permís no disponible")
+        if db.execute(
+            "SELECT 1 FROM employee_leave WHERE employee_id = ? AND record_state = 'open'",
+            (employee_id,),
+        ).fetchone():
+            raise ValueError("Ja hi ha un permís obert")
+
+        last = db.execute("""
+            SELECT type, timestamp FROM punch WHERE employee_id = ?
+            ORDER BY utc_timestamp_sort_key(timestamp) DESC, id DESC LIMIT 1
+        """, (employee_id,)).fetchone()
+        previous_day_entry = (
+            last is not None and last["type"] == "entrada"
+            and parse_local_timestamp(last["timestamp"]).astimezone(LOCAL_TIMEZONE).date() < today
+        )
+        unexpected = (
+            (last is None and punch_type == "sortida")
+            or (last is not None and last["type"] == punch_type)
+        )
+        note = ""
+        if unexpected:
+            if last is None:
+                note = "Primera acció del dia: sortida confirmada pel treballador"
+            elif previous_day_entry and punch_type == "entrada":
+                note = "Nova entrada amb una entrada anterior sense sortida confirmada pel treballador"
+            elif punch_type == "entrada":
+                note = "Entrada consecutiva confirmada pel treballador"
+            else:
+                note = "Sortida consecutiva confirmada pel treballador"
+            if not confirm_incident:
+                return {"ok": False, "confirmation_required": True, "error": note}
+
+        punch = db.execute("""
+            INSERT INTO punch (employee_id, timestamp, type, method, incident, note)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (employee_id, timestamp, punch_type, method, int(unexpected), note))
+        # Les entrades amb permís necessiten l'hora prevista del supervisor.
+        needs_supervisor = punch_type == "entrada" or unexpected
+        leave = db.execute("""
+            INSERT INTO employee_leave
+                (employee_id, leave_type_id, started_at, status, record_state,
+                 requires_supervisor, start_punch_id)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?)
+        """, (
+            employee_id, leave_type_id, timestamp,
+            "needs_regularization" if punch_type == "entrada" else "open",
+            int(needs_supervisor), punch.lastrowid,
+        ))
+        return {
+            "ok": True, "leave_id": leave.lastrowid,
+            "punch_id": punch.lastrowid, "timestamp": timestamp,
+            "punch_type": punch_type, "incident": int(unexpected),
+            "record_state": "needs_regularization" if punch_type == "entrada" else "open",
+        }
