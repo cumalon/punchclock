@@ -3,6 +3,7 @@ let employee = null;
 let identificationToken = null;
 let soundVolume = 20;
 let pendingPunchType = null;
+let pendingReturnChoice = null;
 let usbPromptedDevice = null;
 let usbSuccessVisibleUntil = 0;
 let usbExportInProgress = false;
@@ -104,6 +105,8 @@ function showPinScreen() {
     display.textContent = "";
     punchMessage.textContent = "";
     pendingPunchType = null;
+    pendingReturnChoice = null;
+    document.getElementById("ordinary-leave-return-screen").classList.add("hidden");
     incidentConfirmation.classList.add("hidden");
     pinKeypad.classList.remove("hidden");
 
@@ -163,7 +166,7 @@ async function identify() {
     }
 }
 
-async function createPunch(type, confirmIncident = false) {
+async function createPunch(type, confirmIncident = false, returnChoice = null) {
     await loadKioskSettings();
 
     if (!employee || !identificationToken) {
@@ -181,15 +184,35 @@ async function createPunch(type, confirmIncident = false) {
             body: JSON.stringify({
                 identification_token: identificationToken,
                 type: type,
-                confirm_incident: confirmIncident
+                confirm_incident: confirmIncident,
+                return_choice: returnChoice
             })
         });
 
         const data = await response.json();
 
         if (!data.ok) {
+            if (data.return_choice_required) {
+                pendingPunchType = type;
+                pendingReturnChoice = null;
+                const leaveName = data.leave && (data.leave.leave_type_name || data.leave.name) || "permís";
+                document.getElementById("ordinary-leave-return-message").textContent =
+                    "Tens un permís obert: " + leaveName + ". Quan has tornat?";
+                document.getElementById("ordinary-leave-now").disabled = type !== "entrada";
+                punchScreen.classList.add("hidden");
+                document.getElementById("ordinary-leave-return-screen").classList.remove("hidden");
+                return;
+            }
+            if (data.return_entry_required) {
+                punchMessage.textContent = data.error || "Cal registrar una entrada de retorn";
+                punchButtons.forEach(button => button.disabled = false);
+                return;
+            }
             if (data.confirmation_required) {
                 pendingPunchType = type;
+                pendingReturnChoice = returnChoice;
+                document.getElementById("ordinary-leave-return-screen").classList.add("hidden");
+                punchScreen.classList.remove("hidden");
                 incidentMessage.replaceChildren();
                 const situation = document.createElement("span");
                 situation.textContent = data.error + ".";
@@ -208,6 +231,8 @@ async function createPunch(type, confirmIncident = false) {
         }
 
         punchMessage.textContent =
+            returnChoice === "now" ? "Permís finalitzat i entrada registrada" :
+            returnChoice === "earlier" ? "Fitxatge registrat. Permís pendent de regularització." :
             type === "entrada"
                 ? "Entrada registrada"
                 : "Sortida registrada";
@@ -273,7 +298,7 @@ document.querySelectorAll(".keypad button").forEach(button => {
 document.getElementById("confirm-incident").addEventListener("click", () => {
     if (pendingPunchType) {
         incidentConfirmation.classList.add("hidden");
-        createPunch(pendingPunchType, true);
+        createPunch(pendingPunchType, true, pendingReturnChoice);
     }
 });
 
@@ -613,3 +638,15 @@ document.getElementById("leave-finish-register").addEventListener("click", async
         leaveFinishBusy = false;
     }
 });
+
+function chooseOrdinaryLeaveReturn(choice) {
+    if (!pendingPunchType) return;
+    const type = pendingPunchType;
+    pendingReturnChoice = choice;
+    document.getElementById("ordinary-leave-return-screen").classList.add("hidden");
+    punchScreen.classList.remove("hidden");
+    createPunch(type, false, choice);
+}
+document.getElementById("ordinary-leave-now").addEventListener("click", () => chooseOrdinaryLeaveReturn("now"));
+document.getElementById("ordinary-leave-earlier").addEventListener("click", () => chooseOrdinaryLeaveReturn("earlier"));
+document.getElementById("ordinary-leave-cancel").addEventListener("click", showPinScreen);
