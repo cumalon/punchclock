@@ -931,18 +931,90 @@ async function loadWebUsers() {
         const passwordButton = document.createElement("button");
         passwordButton.type = "button";
         passwordButton.textContent = "Contrasenya temporal";
-        passwordButton.addEventListener("click", async () => {
-            const password = window.prompt("Nova contrasenya temporal (mínim 12 caràcters):");
-            if (password === null) return;
-            const response = await fetch("/api/admin/users/" + user.id + "/temporary-password", {
-                method: "POST",
-                headers: adminHeaders({"Content-Type": "application/json"}),
-                body: JSON.stringify({password}),
+        const passwordForm = document.createElement("form");
+        passwordForm.className = "web-user-password-form hidden";
+        const passwordLabel = document.createElement("label");
+        passwordLabel.textContent = "Contrasenya temporal";
+        const passwordInput = document.createElement("input");
+        passwordInput.type = "password";
+        passwordInput.autocomplete = "new-password";
+        passwordInput.minLength = 12;
+        passwordInput.required = true;
+        passwordLabel.appendChild(passwordInput);
+        const confirmLabel = document.createElement("label");
+        confirmLabel.textContent = "Confirma la contrasenya";
+        const confirmInput = document.createElement("input");
+        confirmInput.type = "password";
+        confirmInput.autocomplete = "new-password";
+        confirmInput.minLength = 12;
+        confirmInput.required = true;
+        confirmLabel.appendChild(confirmInput);
+        const formActions = document.createElement("div");
+        formActions.className = "web-user-password-actions";
+        const saveButton = document.createElement("button");
+        saveButton.type = "submit";
+        saveButton.textContent = "Desar contrasenya";
+        const cancelButton = document.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.className = "secondary-button";
+        cancelButton.textContent = "Cancel·lar";
+        const formMessage = document.createElement("p");
+        formMessage.className = "message";
+        formMessage.setAttribute("role", "status");
+        formActions.append(saveButton, cancelButton);
+        passwordForm.append(passwordLabel, confirmLabel, formActions, formMessage);
+        function closePasswordForm() {
+            passwordForm.reset();
+            formMessage.textContent = "";
+            passwordForm.classList.add("hidden");
+            passwordButton.setAttribute("aria-expanded", "false");
+        }
+        passwordButton.setAttribute("aria-expanded", "false");
+        passwordButton.addEventListener("click", () => {
+            if (!passwordForm.classList.contains("hidden")) {
+                closePasswordForm();
+                return;
+            }
+            container.querySelectorAll(".web-user-password-form:not(.hidden)").forEach(form => {
+                form.reset();
+                form.classList.add("hidden");
+                const trigger = form.closest(".web-user-row")?.querySelector(".web-user-password-trigger");
+                if (trigger) trigger.setAttribute("aria-expanded", "false");
             });
-            const result = await response.json();
-            document.getElementById("web-user-message").textContent =
-                result.ok ? "Contrasenya temporal desada. Caldrà canviar-la al proper inici de sessió." : result.error;
-            if (result.ok) loadWebUsers();
+            passwordForm.classList.remove("hidden");
+            passwordButton.setAttribute("aria-expanded", "true");
+            passwordInput.focus();
+        });
+        passwordButton.classList.add("web-user-password-trigger");
+        cancelButton.addEventListener("click", closePasswordForm);
+        passwordForm.addEventListener("submit", async event => {
+            event.preventDefault();
+            formMessage.textContent = "";
+            if (passwordInput.value !== confirmInput.value) {
+                formMessage.textContent = "Les contrasenyes no coincideixen";
+                return;
+            }
+            saveButton.disabled = true;
+            try {
+                const response = await fetch("/api/admin/users/" + user.id + "/temporary-password", {
+                    method: "POST",
+                    headers: adminHeaders({"Content-Type": "application/json"}),
+                    body: JSON.stringify({password: passwordInput.value}),
+                });
+                const result = await response.json();
+                if (!response.ok || !result.ok) {
+                    formMessage.textContent = result.error || "No s'ha pogut desar la contrasenya";
+                    return;
+                }
+                document.getElementById("web-user-message").textContent =
+                    "Contrasenya temporal desada. Caldrà canviar-la al proper inici de sessió.";
+                closePasswordForm();
+                loadWebUsers();
+            } catch {
+                formMessage.textContent = "Error de connexió. Torna-ho a provar.";
+            } finally {
+                saveButton.disabled = false;
+            }
         });
         const deleteButton = document.createElement("button");
         deleteButton.type = "button";
@@ -962,7 +1034,7 @@ async function loadWebUsers() {
         pending.textContent = user.must_change_password ? "Canvi de contrasenya pendent" : "";
         pending.className = "web-user-status";
         actions.append(button, passwordButton, deleteButton);
-        row.append(label, actions, pending);
+        row.append(label, actions, pending, passwordForm);
         container.appendChild(row);
     }
 }
