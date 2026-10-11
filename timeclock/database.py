@@ -1014,3 +1014,14 @@ def delete_leave_type(type_id):
             db.execute("DELETE FROM leave_type WHERE id = ?", (type_id,))
         except sqlite3.IntegrityError:
             raise ValueError("Aquest tipus ja s'ha utilitzat; només es pot desactivar")
+
+
+def list_active_leave_types():
+    """Tipus disponibles al terminal, sense exposar els inactius."""
+    with get_connection() as db:
+        rows = db.execute("""
+            SELECT id, name, approval_policy, max_minutes, auto_approve_minutes
+            FROM leave_type WHERE active = 1
+            ORDER BY name COLLATE NOCASE, id
+        """).fetchall()
+    return [dict(row) for row in rows]
