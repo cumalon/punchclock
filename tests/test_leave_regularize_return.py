@@ -22,6 +22,9 @@ def make_leave(employee_id):
                  requires_supervisor, start_punch_id)
             VALUES (?, ?, ?, 'needs_regularization', 1, ?)
         """, (employee_id, type_id, started, punch_id)).lastrowid
+    with database.get_connection() as db:
+        admin_id = db.execute("SELECT id FROM admin_user WHERE username = 'admin'").fetchone()["id"]
+    database.classify_employee_leave_departure(leave_id, "return", admin_id)
     return leave_id, punch_id, started
 
 
