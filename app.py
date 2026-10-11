@@ -1197,6 +1197,18 @@ def identify():
     })
 
 
+@app.post("/api/leave/options")
+def terminal_leave_options():
+    data = request.get_json(silent=True) or {}
+    identification = get_identification(str(data.get("identification_token", "")))
+    if identification is None:
+        return jsonify({"ok": False, "error": "Identificació no vàlida o caducada"}), 401
+    context = database.get_employee_leave_context(identification["employee_id"])
+    if context is None:
+        return jsonify({"ok": False, "error": "Empleat no vàlid"}), 404
+    return jsonify({"ok": True, "leave_types": database.list_active_leave_types(), "context": context})
+
+
 @app.post("/api/punch")
 def punch():
     data = request.get_json(silent=True) or {}
