@@ -1233,12 +1233,7 @@ def defer_employee_leave_return(employee_id):
 
 def punch_with_open_leave(employee_id, punch_type, return_choice=None,
                           confirm_incident=False, now=None):
-    """Coordina una entrada ordinària amb el permís temporal obert.
-
-    'now' reutilitza l'entrada de retorn: no duplica el fitxatge.
-    'earlier' només marca la regularització; el fitxatge ordinari
-    es farà en una operació posterior, després de confirmar-ne el tipus.
-    """
+    """Resol el retorn d'un permís i el fitxatge sol·licitat."""
     if punch_type not in ("entrada", "sortida"):
         raise ValueError("Tipus de fitxatge no vàlid")
     context = get_employee_leave_context(employee_id, now=now)
@@ -1249,17 +1244,70 @@ def punch_with_open_leave(employee_id, punch_type, return_choice=None,
     if return_choice not in ("now", "earlier"):
         return {"ok": False, "return_choice_required": True,
                 "leave": context["open_leave"]}
-    if return_choice == "earlier":
-        result = defer_employee_leave_return(employee_id)
-        return {**result, "ordinary_punch_required": True,
-                "requested_punch_type": punch_type}
-    if punch_type != "entrada":
-        return {"ok": False, "return_entry_required": True,
-                "error": "Cal registrar primer l'entrada de retorn"}
-    result = finish_employee_leave(
-        employee_id, confirm_incident=confirm_incident, now=now
-    )
-    if not result["ok"]:
-        return result
-    return {**result, "ordinary_punch_required": False,
-            "punch_reused_as_return": True}
+    if return_choice == "now":
+        if punch_type != "entrada":
+            return {"ok": False, "return_entry_required": True,
+                    "error": "Cal registrar primer l'entrada de retorn"}
+        result = finish_employee_leave(
+            employee_id, confirm_incident=confirm_incident, now=now
+        )
+        if not result["ok"]:
+            return result
+        return {**result, "ordinary_punch_required": False,
+                "punch_reused_as_return": True}
+
+    # Retorn anterior: validació del fitxatge i regularització en una
+    # única transacció, sense inventar cap hora de finalització.
+    now = now or datetime.now(LOCAL_TIMEZONE)
+    timestamp = now.astimezone(LOCAL_TIMEZONE).isoformat(timespec="seconds")
+    today = now.astimezone(LOCAL_TIMEZONE).date()
+    with get_connection() as db:
+        leave = db.execute("""
+            SELECT id FROM employee_leave
+            WHERE employee_id = ? AND record_state = 'open'
+            ORDER BY id DESC LIMIT 1
+        """, (employee_id,)).fetchone()
+        if leave is None:
+            raise ValueError("No hi ha cap permís obert")
+        last = db.execute("""
+            SELECT type, timestamp FROM punch WHERE employee_id = ?
+            ORDER BY utc_timestamp_sort_key(timestamp) DESC, id DESC LIMIT 1
+        """, (employee_id,)).fetchone()
+        previous_day_entry = (
+            last is not None and last["type"] == "entrada"
+            and parse_local_timestamp(last["timestamp"]).astimezone(LOCAL_TIMEZONE).date() < today
+        )
+        unexpected = (
+            (last is None and punch_type == "sortida")
+            or (last is not None and last["type"] == punch_type)
+        )
+        note = ""
+        if unexpected:
+            if last is None:
+                note = "Primera acció del dia: sortida confirmada pel treballador"
+            elif previous_day_entry and punch_type == "entrada":
+                note = "Nova entrada amb una entrada anterior sense sortida confirmada pel treballador"
+            elif punch_type == "entrada":
+                note = "Entrada consecutiva confirmada pel treballador"
+            else:
+                note = "Sortida consecutiva confirmada pel treballador"
+            if not confirm_incident:
+                return {"ok": False, "confirmation_required": True,
+                        "error": note, "requested_punch_type": punch_type}
+        punch = db.execute("""
+            INSERT INTO punch (employee_id, timestamp, type, method, incident, note)
+            VALUES (?, ?, ?, 'pin', ?, ?)
+        """, (employee_id, timestamp, punch_type, int(unexpected), note))
+        db.execute("""
+            UPDATE employee_leave
+            SET record_state = 'needs_regularization',
+                requires_supervisor = 1, status = 'pending'
+            WHERE id = ?
+        """, (leave["id"],))
+        return {
+            "ok": True, "leave_id": leave["id"],
+            "record_state": "needs_regularization", "status": "pending",
+            "punch_id": punch.lastrowid, "punch_type": punch_type,
+            "incident": int(unexpected), "timestamp": timestamp,
+            "ordinary_punch_required": False,
+        }
