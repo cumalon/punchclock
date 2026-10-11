@@ -404,6 +404,7 @@ async function showLeaveOptions() {
         if (data.context.open_leave) {
             leaveOptionsMessage.textContent =
                 "Tens un permís pendent de finalitzar: " + data.context.open_leave.leave_type_name;
+            document.getElementById("finish-leave-choice").classList.remove("hidden");
             return;
         }
         if (!data.leave_types.length) {
@@ -450,6 +451,9 @@ continueLeaveOptions.addEventListener("click", () => {
     registerButton.onclick = null;
     registerButton.disabled = false;
     document.getElementById("leave-confirm-back").disabled = false;
+    document.getElementById("leave-direction-actions").classList.remove("hidden");
+    document.getElementById("leave-finish-register").classList.add("hidden");
+    document.getElementById("leave-finish-register").dataset.confirmIncident = "false";
     document.getElementById("leave-confirm-message").textContent =
         "Selecciona una direcció abans de confirmar el registre.";
     leaveScreen.classList.add("hidden");
@@ -543,4 +547,69 @@ document.getElementById("leave-register").addEventListener("click", async () => 
 document.getElementById("leave-confirm-back").addEventListener("click", () => {
     leaveConfirmScreen.classList.add("hidden");
     leaveScreen.classList.remove("hidden");
+});
+
+let leaveFinishBusy = false;
+document.getElementById("finish-leave-choice").addEventListener("click", () => {
+    if (!leaveContext || !leaveContext.open_leave) return;
+    document.getElementById("leave-confirm-name").textContent =
+        leaveContext.open_leave.leave_type_name;
+    document.getElementById("leave-confirm-hint").textContent =
+        "El retorn finalitzarà el permís i registrarà una ENTRADA amb l'hora actual.";
+    document.getElementById("leave-direction-actions").classList.add("hidden");
+    document.getElementById("leave-register").classList.add("hidden");
+    document.getElementById("leave-finish-register").classList.remove("hidden");
+    document.getElementById("leave-finish-register").disabled = false;
+    document.getElementById("leave-finish-register").dataset.confirmIncident = "false";
+    document.getElementById("leave-finish-register").textContent = "CONFIRMAR RETORN";
+    document.getElementById("leave-confirm-message").textContent =
+        "Prem CONFIRMAR RETORN per registrar l'entrada.";
+    leaveScreen.classList.add("hidden");
+    leaveConfirmScreen.classList.remove("hidden");
+});
+document.getElementById("leave-finish-register").addEventListener("click", async () => {
+    if (leaveFinishBusy || !identificationToken) return;
+    const button = document.getElementById("leave-finish-register");
+    const back = document.getElementById("leave-confirm-back");
+    const message = document.getElementById("leave-confirm-message");
+    const confirmIncident = button.dataset.confirmIncident === "true";
+    leaveFinishBusy = true;
+    button.disabled = true;
+    back.disabled = true;
+    message.textContent = "Registrant retorn...";
+    try {
+        const response = await fetch("/api/leave/finish", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                identification_token: identificationToken,
+                confirm_incident: confirmIncident
+            })
+        });
+        const data = await response.json();
+        if (data.ok) {
+            identificationToken = null;
+            button.classList.add("hidden");
+            message.textContent = "Retorn registrat. Permís finalitzat correctament.";
+            playPunchConfirmationSound();
+            setTimeout(showPinScreen, 3000);
+        } else if (data.confirmation_required && !confirmIncident) {
+            message.textContent = (data.error || "Incidència") +
+                ". No s'ha registrat res. Confirma només si és correcte.";
+            button.dataset.confirmIncident = "true";
+            button.textContent = "CONFIRMAR INCIDÈNCIA I RETORN";
+            button.disabled = false;
+            back.disabled = false;
+            playErrorSound();
+        } else {
+            message.textContent = data.error || "No s'ha pogut registrar el retorn";
+            button.disabled = false;
+            back.disabled = false;
+        }
+    } catch {
+        message.textContent = "Error de connexió. Comprova el registre abans de repetir.";
+        back.disabled = false;
+    } finally {
+        leaveFinishBusy = false;
+    }
 });
