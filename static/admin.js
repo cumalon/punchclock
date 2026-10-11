@@ -1692,13 +1692,29 @@ async function loadSupervisionLeaveDetail(leaveId) {
             addTime(leave.regularization_kind === "return" ? "Retorn regularitzat" : "Retorn / final registrat", leave.ended_at);
         }
         times.append(timesHeading, timeGrid);
-        if (leave.ended_at && !isArrival) {
-            const minutes = (new Date(leave.ended_at) - new Date(leave.started_at)) / 60000;
-            if (Number.isFinite(minutes) && minutes >= 0) {
+        let durationStart = null;
+        let durationEnd = null;
+        let durationLabel = "Durada del permís";
+        if (leave.regularization_kind === "late_arrival") {
+            durationStart = leave.expected_started_at;
+            durationEnd = leave.started_at;
+            durationLabel = "Temps d'arribada tardana";
+        } else if (leave.regularization_kind === "early_departure") {
+            durationStart = leave.started_at;
+            durationEnd = leave.expected_ended_at;
+            durationLabel = "Temps de sortida anticipada";
+        } else if (!isArrival) {
+            durationStart = leave.started_at;
+            durationEnd = leave.ended_at;
+        }
+        if (durationStart && durationEnd) {
+            const seconds = Math.round((new Date(durationEnd) - new Date(durationStart)) / 1000);
+            if (Number.isFinite(seconds) && seconds >= 0) {
                 const duration = document.createElement("p");
                 duration.className = "leave-detail-duration";
-                duration.textContent = "Durada: " + Math.floor(minutes) + " min " +
-                    Math.round((minutes % 1) * 60) + " s";
+                duration.textContent = durationLabel + ": " +
+                    (seconds >= 60 ? Math.floor(seconds / 60) + " min " : "") +
+                    (seconds % 60) + " s";
                 times.appendChild(duration);
             }
         }
