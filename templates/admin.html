@@ -17,6 +17,7 @@
                 {% if role == 'admin' %}<a class="active" href="#treballadors" data-section="employees">Treballadors</a>{% endif %}
                 <span class="nav-separator" aria-hidden="true"></span>
                 {% if role == 'admin' %}
+                <a href="#permisos" data-section="leave-types">Tipus de permisos</a>
                 <a href="#usuaris" data-section="users">Usuaris web</a>
                 <a href="#copies" data-section="backups">Còpies de seguretat</a>
                 <a href="#configuracio" data-section="settings">Configuració</a>
@@ -118,6 +119,28 @@
             </div>
 
             {% if role == 'admin' %}
+            <div id="leave-types-section" class="hidden">
+                <header class="section-header"><h1>Tipus de permisos</h1><p>Configura els permisos disponibles per als treballadors.</p></header>
+                <section class="panel">
+                    <h2>Nou tipus de permís</h2>
+                    <form id="new-leave-type">
+                        <label>Nom <input id="leave-type-name" maxlength="100" required></label>
+                        <label>Política d'aprovació
+                            <select id="leave-type-policy">
+                                <option value="manual">Revisió manual</option>
+                                <option value="automatic">Automàtica</option>
+                                <option value="threshold">Automàtica fins a un límit</option>
+                            </select>
+                        </label>
+                        <label>Durada màxima (minuts, opcional) <input id="leave-type-max" type="number" min="1" step="1"></label>
+                        <label>Límit automàtic (minuts, només per a política amb límit) <input id="leave-type-threshold" type="number" min="1" step="1"></label>
+                        <button type="submit">Crear tipus</button>
+                    </form>
+                    <p id="leave-type-message" role="status"></p>
+                </section>
+                <section class="panel"><h2>Tipus configurats</h2><div id="leave-types-list"></div></section>
+            </div>
+
             <div id="users-section" class="hidden">
                 <header class="section-header"><h1>Usuaris web</h1><p>Administradors i supervisors.</p></header>
                 <section class="panel">
@@ -240,6 +263,6 @@
             </div>
         </main>
     </div>
-    <script src="/static/admin.js?v=6.20"></script>
+    <script src="/static/admin.js?v=6.21"></script>
 </body>
 </html>
