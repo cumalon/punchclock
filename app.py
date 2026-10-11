@@ -439,6 +439,7 @@ SUPERVISOR_ENDPOINTS = {
     "admin_employees", "admin_change_password", "admin_logout",
     "admin_leaves", "admin_leave_detail",
     "admin_classify_leave",
+    "admin_regularize_leave_return",
 }
 
 
@@ -586,6 +587,19 @@ def admin_classify_leave(leave_id):
     try:
         result = database.classify_employee_leave_departure(
             leave_id, data.get("kind"), session["admin_user_id"]
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify(result)
+
+
+@app.post("/api/admin/leaves/<int:leave_id>/regularize-return")
+def admin_regularize_leave_return(leave_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        result = database.regularize_employee_leave_return(
+            leave_id, data.get("returned_at"),
+            session["admin_user_id"], data.get("reason"),
         )
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
