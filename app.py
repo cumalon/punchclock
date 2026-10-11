@@ -28,6 +28,9 @@ from timeclock.database import (
     create_admin_user,
     list_admin_users,
     set_admin_user_active,
+    set_temporary_admin_password,
+    complete_forced_password_change,
+    delete_inactive_admin_user,
     init_database,
     list_employees,
     list_punches,
@@ -357,7 +360,37 @@ def admin():
         return redirect(url_for("admin_login_page"))
     if "csrf_token" not in session:
         session["csrf_token"] = secrets.token_urlsafe(32)
+    if identity["must_change_password"]:
+        return redirect(url_for("admin_change_password_page"))
     return render_template("admin.html", csrf_token=session["csrf_token"], role=identity["role"])
+
+
+@app.get("/admin/change-password")
+def admin_change_password_page():
+    if "admin_user_id" not in session:
+        return redirect(url_for("admin_login_page"))
+    identity = get_active_admin_identity(session["admin_user_id"])
+    if identity is None or identity["updated_at"] != session.get("admin_session_version"):
+        session.clear()
+        return redirect(url_for("admin_login_page"))
+    if not identity["must_change_password"]:
+        return redirect(url_for("admin"))
+    return render_template("admin_forced_password.html", csrf_token=session["csrf_token"])
+
+
+@app.post("/api/admin/complete-password-change")
+def admin_complete_password_change():
+    data = request.get_json(silent=True) or {}
+    if data.get("new_password") != data.get("confirmation"):
+        return jsonify({"ok": False, "error": "Les contrasenyes no coincideixen"}), 400
+    try:
+        complete_forced_password_change(
+            session["admin_user_id"], data.get("temporary_password", ""), data.get("new_password", ""),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    session.clear()
+    return jsonify({"ok": True})
 
 
 @app.get("/admin/login")
@@ -388,6 +421,7 @@ def admin_login():
         "ok": True,
         "username": admin_user["username"],
         "role": admin_user["role"],
+        "must_change_password": admin_user["must_change_password"],
         "csrf_token": session["csrf_token"],
     })
 
@@ -423,7 +457,10 @@ def require_admin_authentication():
                 "error": "La sessió d'administrador ja no és vàlida. Torna a iniciar sessió",
             }), 401
 
-        if identity["role"] == "supervisor" and request.endpoint not in SUPERVISOR_ENDPOINTS:
+        if identity["must_change_password"] and request.endpoint not in {"admin_complete_password_change", "admin_logout"}:
+            return jsonify({"ok": False, "error": "Cal canviar la contrasenya abans de continuar"}), 403
+
+        if identity["role"] == "supervisor" and request.endpoint not in SUPERVISOR_ENDPOINTS and request.endpoint != "admin_complete_password_change":
             return jsonify({"ok": False, "error": "Accés reservat a l'administrador"}), 403
 
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
@@ -497,6 +534,27 @@ def admin_set_user_active(user_id):
         return jsonify({"ok": False, "error": "Estat no vàlid"}), 400
     try:
         set_admin_user_active(target["username"], data["active"])
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True})
+
+
+@app.post("/api/admin/users/<int:user_id>/temporary-password")
+def admin_reset_user_password(user_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        set_temporary_admin_password(user_id, data.get("password", ""))
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/admin/users/<int:user_id>")
+def admin_delete_user(user_id):
+    if user_id == session["admin_user_id"]:
+        return jsonify({"ok": False, "error": "No pots eliminar el teu propi usuari"}), 400
+    try:
+        delete_inactive_admin_user(user_id)
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
     return jsonify({"ok": True})
