@@ -1569,3 +1569,36 @@ def regularize_employee_leave_early_departure(leave_id, expected_ended_at, admin
               admin_user_id, reason.strip(), leave_id))
     return {"ok": True, "leave_id": leave_id, "record_state": "finished",
             "status": "pending"}
+
+
+def classify_employee_leave_departure(leave_id, kind, admin_user_id):
+    """Classifica una sortida pendent abans de regularitzar-ne les hores."""
+    if kind not in ("return", "early_departure"):
+        raise ValueError("Tipus de regularització no vàlid")
+    with get_connection() as db:
+        reviewer = db.execute("""
+            SELECT id FROM admin_user
+            WHERE id = ? AND active = 1 AND role IN ('admin', 'supervisor')
+        """, (admin_user_id,)).fetchone()
+        if reviewer is None:
+            raise ValueError("Supervisor no vàlid o inactiu")
+        leave = db.execute("""
+            SELECT el.record_state, el.status, el.regularization_kind,
+                   p.type AS punch_type
+            FROM employee_leave el
+            LEFT JOIN punch p ON p.id = el.start_punch_id
+            WHERE el.id = ?
+        """, (leave_id,)).fetchone()
+        if leave is None:
+            raise ValueError("Permís no trobat")
+        if (leave["record_state"] != "needs_regularization"
+                or leave["status"] != "pending"
+                or leave["punch_type"] != "sortida"):
+            raise ValueError("El permís no és una sortida pendent de regularització")
+        if leave["regularization_kind"] is not None:
+            raise ValueError("El permís ja està classificat")
+        db.execute("""
+            UPDATE employee_leave SET regularization_kind = ?
+            WHERE id = ?
+        """, (kind, leave_id))
+    return {"ok": True, "leave_id": leave_id, "regularization_kind": kind}
