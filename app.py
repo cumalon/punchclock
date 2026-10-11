@@ -438,6 +438,7 @@ SUPERVISOR_ENDPOINTS = {
     "admin_punch_incident_reviews", "admin_punch_corrections",
     "admin_employees", "admin_change_password", "admin_logout",
     "admin_leaves", "admin_leave_detail",
+    "admin_classify_leave",
 }
 
 
@@ -577,6 +578,18 @@ def admin_leave_detail(leave_id):
     if leave is None:
         return jsonify({"ok": False, "error": "Permís no trobat"}), 404
     return jsonify({"ok": True, "leave": leave})
+
+
+@app.post("/api/admin/leaves/<int:leave_id>/classify")
+def admin_classify_leave(leave_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        result = database.classify_employee_leave_departure(
+            leave_id, data.get("kind"), session["admin_user_id"]
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify(result)
 
 
 @app.get("/api/admin/leave-types")
