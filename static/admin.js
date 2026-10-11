@@ -1689,7 +1689,7 @@ async function loadSupervisionLeaveDetail(leaveId) {
         } else if (leave.regularization_kind === "early_departure") {
             addTime("Finalització prevista", leave.expected_ended_at);
         } else {
-            addTime("Retorn / final registrat", leave.ended_at);
+            addTime(leave.regularization_kind === "return" ? "Retorn regularitzat" : "Retorn / final registrat", leave.ended_at);
         }
         times.append(timesHeading, timeGrid);
         if (leave.ended_at && !isArrival) {
@@ -1706,11 +1706,7 @@ async function loadSupervisionLeaveDetail(leaveId) {
 
         const actions = document.createElement("section");
         actions.className = "leave-detail-block leave-detail-actions";
-        const actionsTitle = document.createElement("h3");
-        actionsTitle.textContent = leave.record_state === "needs_regularization" ?
-            "Regularització pendent" : leave.record_state === "finished" ?
-            "Revisió del supervisor" : "Permís obert";
-        actions.appendChild(actionsTitle);
+
         appendLeaveClassification(actions, leave);
         appendReturnRegularization(actions, leave);
         appendEarlyDepartureRegularization(actions, leave);
