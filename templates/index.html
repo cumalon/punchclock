@@ -64,6 +64,18 @@
             <button id="continue-leave-options" type="button" disabled>CONTINUAR</button>
             <button id="cancel-leave-options" class="secondary-action" type="button">TORNAR</button>
         </section>
+
+        <section id="leave-confirm-screen" class="kiosk-card hidden">
+            <h1>Confirma el permís</h1>
+            <p id="leave-confirm-name"></p>
+            <p id="leave-confirm-hint"></p>
+            <div id="leave-direction-actions" class="punch-actions">
+                <button type="button" data-leave-direction="entrada">ENTRADA AMB PERMÍS</button>
+                <button type="button" data-leave-direction="sortida">SORTIDA AMB PERMÍS</button>
+            </div>
+            <p id="leave-confirm-message">Prova de navegació: no es registrarà cap fitxatge.</p>
+            <button id="leave-confirm-back" class="secondary-action" type="button">TORNAR</button>
+        </section>
     </main>
 
     <div id="usb-dialog" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="usb-dialog-title">
@@ -86,6 +98,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=6.6"></script>
+    <script src="/static/app.js?v=6.7"></script>
 </body>
 </html>
