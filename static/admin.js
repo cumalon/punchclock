@@ -138,6 +138,8 @@ function showSection(section) {
     punchesSection.classList.toggle("hidden", section !== "punches");
     settingsSection.classList.toggle("hidden", section !== "settings");
     backupsSection.classList.toggle("hidden", section !== "backups");
+    const leaveTypesSection = document.getElementById("leave-types-section");
+    if (leaveTypesSection) leaveTypesSection.classList.toggle("hidden", section !== "leave-types");
     const usersSection = document.getElementById("users-section");
     if (usersSection) usersSection.classList.toggle("hidden", section !== "users");
 
@@ -150,6 +152,7 @@ function showSection(section) {
     if (section === "punches") loadPunches();
     if (section === "settings") loadSettings();
     if (section === "users") loadWebUsers();
+    if (section === "leave-types") loadLeaveTypes();
     if (section === "backups") {
         loadBackups();
         startBackupUsbPolling();
@@ -258,6 +261,7 @@ const sectionByHash = {
     "#fitxatges": "punches",
     "#treballadors": "employees",
     "#usuaris": "users",
+    "#permisos": "leave-types",
     "#copies": "backups",
     "#configuracio": "settings"
 };
@@ -1091,3 +1095,115 @@ document.getElementById("remove-logo").addEventListener("click", () => {
 });
 
 loadLogoStatus();
+
+ 
+function leaveTypePayload(name, policy, maxValue, thresholdValue, active) {
+    const max_minutes = maxValue.trim() === "" ? null : Number(maxValue);
+    const auto_approve_minutes = policy === "threshold" && thresholdValue.trim() !== ""
+        ? Number(thresholdValue) : null;
+    return {name: name.trim(), approval_policy: policy, max_minutes, auto_approve_minutes, active};
+}
+
+async function leaveTypeRequest(url, method, payload) {
+    const response = await fetch(url, {
+        method,
+        headers: adminHeaders({"Content-Type": "application/json"}),
+        ...(payload === undefined ? {} : {body: JSON.stringify(payload)})
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "Error de connexió");
+    return data;
+}
+
+async function loadLeaveTypes() {
+    const container = document.getElementById("leave-types-list");
+    if (!container) return;
+    try {
+        const response = await fetch("/api/admin/leave-types");
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Error de connexió");
+        container.replaceChildren();
+        if (!data.leave_types.length) {
+            container.textContent = "Encara no hi ha tipus de permisos.";
+            return;
+        }
+        for (const item of data.leave_types) {
+            const row = document.createElement("div");
+            row.className = "panel";
+            const name = document.createElement("input");
+            name.value = item.name;
+            name.maxLength = 100;
+            name.setAttribute("aria-label", "Nom del tipus");
+            const policy = document.createElement("select");
+            for (const [value, label] of [["manual", "Revisió manual"], ["automatic", "Automàtica"], ["threshold", "Automàtica fins a un límit"]]) {
+                const option = document.createElement("option");
+                option.value = value;
+                option.textContent = label;
+                policy.appendChild(option);
+            }
+            policy.value = item.approval_policy;
+            const max = document.createElement("input");
+            max.type = "number"; max.min = "1"; max.step = "1";
+            max.placeholder = "Durada màxima (min)";
+            max.setAttribute("aria-label", "Durada màxima en minuts");
+            max.value = item.max_minutes ?? "";
+            const threshold = document.createElement("input");
+            threshold.type = "number"; threshold.min = "1"; threshold.step = "1";
+            threshold.placeholder = "Límit automàtic (min)";
+            threshold.setAttribute("aria-label", "Límit automàtic en minuts");
+            threshold.value = item.auto_approve_minutes ?? "";
+            const activeLabel = document.createElement("label");
+            const active = document.createElement("input");
+            active.type = "checkbox"; active.checked = Boolean(item.active);
+            activeLabel.append(active, " Actiu");
+            const save = document.createElement("button");
+            save.type = "button"; save.textContent = "Desar";
+            const remove = document.createElement("button");
+            remove.type = "button"; remove.textContent = "Eliminar";
+            remove.disabled = Boolean(item.used);
+            remove.title = item.used ? "Tipus utilitzat: només es pot desactivar" : "Eliminar definitivament";
+            const status = document.createElement("span");
+            status.setAttribute("role", "status");
+            save.addEventListener("click", async () => {
+                save.disabled = true;
+                try {
+                    await leaveTypeRequest("/api/admin/leave-types/" + item.id, "PUT",
+                        leaveTypePayload(name.value, policy.value, max.value, threshold.value, active.checked));
+                    status.textContent = "Desat";
+                    await loadLeaveTypes();
+                } catch (error) { status.textContent = error.message; }
+                finally { save.disabled = false; }
+            });
+            remove.addEventListener("click", async () => {
+                if (!confirm("Vols eliminar definitivament aquest tipus de permís?")) return;
+                remove.disabled = true;
+                try {
+                    await leaveTypeRequest("/api/admin/leave-types/" + item.id, "DELETE");
+                    await loadLeaveTypes();
+                } catch (error) { status.textContent = error.message; remove.disabled = false; }
+            });
+            row.append(name, policy, max, threshold, activeLabel, save, remove, status);
+            container.appendChild(row);
+        }
+    } catch (error) {
+        container.textContent = error.message;
+    }
+}
+
+const newLeaveTypeForm = document.getElementById("new-leave-type");
+if (newLeaveTypeForm) newLeaveTypeForm.addEventListener("submit", async event => {
+    event.preventDefault();
+    const message = document.getElementById("leave-type-message");
+    try {
+        await leaveTypeRequest("/api/admin/leave-types", "POST", leaveTypePayload(
+            document.getElementById("leave-type-name").value,
+            document.getElementById("leave-type-policy").value,
+            document.getElementById("leave-type-max").value,
+            document.getElementById("leave-type-threshold").value,
+            true
+        ));
+        newLeaveTypeForm.reset();
+        message.textContent = "Tipus creat";
+        await loadLeaveTypes();
+    } catch (error) { message.textContent = error.message; }
+});
