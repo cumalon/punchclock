@@ -104,6 +104,7 @@ def init_database():
                 pin_hash TEXT,
                 active INTEGER NOT NULL DEFAULT 1,
                 role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('admin', 'supervisor')),
+                must_change_password INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -143,6 +144,9 @@ def init_database():
         admin_columns = {row["name"] for row in db.execute("PRAGMA table_info(admin_user)").fetchall()}
         if "role" not in admin_columns:
             db.execute("ALTER TABLE admin_user ADD COLUMN role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('admin', 'supervisor'))")
+
+        if "must_change_password" not in admin_columns:
+            db.execute("ALTER TABLE admin_user ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
 
         review_columns = {row["name"] for row in db.execute("PRAGMA table_info(punch_incident_review)").fetchall()}
         review_indexes = db.execute("PRAGMA index_list(punch_incident_review)").fetchall()
@@ -563,18 +567,18 @@ def authenticate_admin(username, password):
         return None
     with get_connection() as db:
         row = db.execute(
-            "SELECT id, username, password_hash, role, updated_at FROM admin_user WHERE username = ? COLLATE NOCASE AND active = 1",
+            "SELECT id, username, password_hash, role, must_change_password, updated_at FROM admin_user WHERE username = ? COLLATE NOCASE AND active = 1",
             (username,),
         ).fetchone()
     if row is None or not check_password_hash(row["password_hash"], password):
         return None
-    return {"id": row["id"], "username": row["username"], "role": row["role"], "updated_at": row["updated_at"]}
+    return {"id": row["id"], "username": row["username"], "role": row["role"], "must_change_password": bool(row["must_change_password"]), "updated_at": row["updated_at"]}
 
 
 def get_active_admin_identity(admin_user_id):
     with get_connection() as db:
         row = db.execute(
-            "SELECT id, role, updated_at FROM admin_user WHERE id = ? AND active = 1",
+            "SELECT id, role, must_change_password, updated_at FROM admin_user WHERE id = ? AND active = 1",
             (admin_user_id,),
         ).fetchone()
     return None if row is None else dict(row)
@@ -689,9 +693,57 @@ def reset_admin_password(username, new_password):
 def list_admin_users():
     with get_connection() as db:
         rows = db.execute(
-            "SELECT id, username, role, active, created_at, updated_at FROM admin_user ORDER BY username COLLATE NOCASE"
+            "SELECT id, username, role, active, must_change_password, created_at, updated_at FROM admin_user ORDER BY username COLLATE NOCASE"
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def set_temporary_admin_password(user_id, password):
+    password = str(password)
+    if len(password) < 12:
+        raise ValueError("La contrasenya temporal ha de tenir com a mínim 12 caràcters")
+    with get_connection() as db:
+        row = db.execute("SELECT id FROM admin_user WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise ValueError("Usuari no trobat")
+        db.execute(
+            "UPDATE admin_user SET password_hash = ?, must_change_password = 1, updated_at = ? WHERE id = ?",
+            (generate_password_hash(password), datetime.now(ZoneInfo("Europe/Madrid")).isoformat(timespec="microseconds"), user_id),
+        )
+
+
+def complete_forced_password_change(user_id, temporary_password, new_password):
+    new_password = str(new_password)
+    if len(new_password) < 12:
+        raise ValueError("La nova contrasenya ha de tenir com a mínim 12 caràcters")
+    with get_connection() as db:
+        row = db.execute(
+            "SELECT password_hash, must_change_password FROM admin_user WHERE id = ? AND active = 1",
+            (user_id,),
+        ).fetchone()
+        if row is None or not row["must_change_password"]:
+            raise ValueError("No hi ha cap canvi de contrasenya pendent")
+        if not check_password_hash(row["password_hash"], str(temporary_password)):
+            raise ValueError("La contrasenya temporal no és correcta")
+        if check_password_hash(row["password_hash"], new_password):
+            raise ValueError("La contrasenya nova ha de ser diferent de la temporal")
+        db.execute(
+            "UPDATE admin_user SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?",
+            (generate_password_hash(new_password), datetime.now(ZoneInfo("Europe/Madrid")).isoformat(timespec="microseconds"), user_id),
+        )
+
+
+def delete_inactive_admin_user(user_id):
+    with get_connection() as db:
+        row = db.execute("SELECT active FROM admin_user WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise ValueError("Usuari no trobat")
+        if row["active"]:
+            raise ValueError("Cal desactivar l'usuari abans d'eliminar-lo")
+        try:
+            db.execute("DELETE FROM admin_user WHERE id = ?", (user_id,))
+        except sqlite3.IntegrityError as error:
+            raise ValueError("No es pot eliminar aquest usuari perquè té registres històrics associats") from error
 
 
 def set_admin_user_active(username, active):
