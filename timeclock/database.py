@@ -186,6 +186,9 @@ def init_database():
             "end_punch_id": "INTEGER REFERENCES punch(id)",
             "regularized_at": "TEXT",
             "regularized_by": "INTEGER REFERENCES admin_user(id)",
+            "expected_started_at": "TEXT",
+            "expected_ended_at": "TEXT",
+            "regularization_reason": "TEXT",
         }
         for column, definition in leave_migrations.items():
             if column not in leave_columns:
