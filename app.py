@@ -436,7 +436,7 @@ SUPERVISOR_ENDPOINTS = {
     "admin_punches", "admin_export_csv", "admin_timeline",
     "admin_correct_punch", "admin_review_punch_incident",
     "admin_punch_incident_reviews", "admin_punch_corrections",
-    "admin_employees", "admin_change_password",
+    "admin_employees", "admin_change_password", "admin_logout",
 }
 
 
