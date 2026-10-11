@@ -170,3 +170,86 @@ def test_regularization_apis_reject_invalid_input(admin_client):
     )
     assert late.status_code == 400
     assert early.status_code == 400
+
+
+def test_late_arrival_regularization_api_end_to_end(admin_client, employee):
+    from datetime import datetime, timedelta
+
+    worker = employee()
+    type_id = database.create_leave_type("Arribada tardana")
+    actual = datetime.now(database.LOCAL_TIMEZONE) - timedelta(hours=1)
+    actual_at = actual.isoformat(timespec="seconds")
+    expected_at = (actual - timedelta(minutes=30)).isoformat(timespec="seconds")
+    with database.get_connection() as db:
+        punch_id = db.execute("""
+            INSERT INTO punch (employee_id, timestamp, type, method)
+            VALUES (?, ?, 'entrada', 'pin')
+        """, (worker["id"], actual_at)).lastrowid
+        leave_id = db.execute("""
+            INSERT INTO employee_leave
+                (employee_id, leave_type_id, started_at, record_state,
+                 requires_supervisor, start_punch_id)
+            VALUES (?, ?, ?, 'needs_regularization', 1, ?)
+        """, (worker["id"], type_id, actual_at, punch_id)).lastrowid
+        count_before = db.execute("SELECT count(*) FROM punch").fetchone()[0]
+
+    response = admin_client.post(
+        f"/api/admin/leaves/{leave_id}/regularize-late-arrival",
+        json={"expected_started_at": expected_at, "reason": "Entrada prevista comprovada"},
+    )
+    assert response.status_code == 200
+    detail = admin_client.get(f"/api/admin/leaves/{leave_id}").get_json()["leave"]
+    assert detail["expected_started_at"] == expected_at
+    assert detail["regularization_kind"] == "late_arrival"
+    assert detail["record_state"] == "finished"
+    assert detail["status"] == "pending"
+    assert detail["requires_supervisor"] == 1
+    with database.get_connection() as db:
+        assert db.execute("SELECT count(*) FROM punch").fetchone()[0] == count_before
+        assert db.execute(
+            "SELECT timestamp FROM punch WHERE id = ?", (punch_id,)
+        ).fetchone()[0] == actual_at
+
+
+def test_early_departure_regularization_api_end_to_end(admin_client, employee):
+    from datetime import datetime, timedelta
+
+    worker = employee()
+    type_id = database.create_leave_type("Sortida anticipada")
+    actual = datetime.now(database.LOCAL_TIMEZONE) - timedelta(hours=2)
+    actual_at = actual.isoformat(timespec="seconds")
+    expected_at = (actual + timedelta(minutes=45)).isoformat(timespec="seconds")
+    with database.get_connection() as db:
+        punch_id = db.execute("""
+            INSERT INTO punch (employee_id, timestamp, type, method)
+            VALUES (?, ?, 'sortida', 'pin')
+        """, (worker["id"], actual_at)).lastrowid
+        leave_id = db.execute("""
+            INSERT INTO employee_leave
+                (employee_id, leave_type_id, started_at, record_state,
+                 requires_supervisor, start_punch_id)
+            VALUES (?, ?, ?, 'needs_regularization', 1, ?)
+        """, (worker["id"], type_id, actual_at, punch_id)).lastrowid
+        count_before = db.execute("SELECT count(*) FROM punch").fetchone()[0]
+
+    classified = admin_client.post(
+        f"/api/admin/leaves/{leave_id}/classify",
+        json={"kind": "early_departure"},
+    )
+    assert classified.status_code == 200
+    response = admin_client.post(
+        f"/api/admin/leaves/{leave_id}/regularize-early-departure",
+        json={"expected_ended_at": expected_at, "reason": "Final de jornada verificat"},
+    )
+    assert response.status_code == 200
+    detail = admin_client.get(f"/api/admin/leaves/{leave_id}").get_json()["leave"]
+    assert detail["expected_ended_at"] == expected_at
+    assert detail["regularization_kind"] == "early_departure"
+    assert detail["record_state"] == "finished"
+    assert detail["status"] == "pending"
+    assert detail["requires_supervisor"] == 1
+    with database.get_connection() as db:
+        assert db.execute("SELECT count(*) FROM punch").fetchone()[0] == count_before
+        assert db.execute(
+            "SELECT timestamp FROM punch WHERE id = ?", (punch_id,)
+        ).fetchone()[0] == actual_at
