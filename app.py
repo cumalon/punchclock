@@ -1209,6 +1209,35 @@ def terminal_leave_options():
     return jsonify({"ok": True, "leave_types": database.list_active_leave_types(), "context": context})
 
 
+@app.post("/api/leave/start")
+def terminal_leave_start():
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("identification_token", ""))
+    identification = get_identification(token)
+    if identification is None:
+        return jsonify({"ok": False, "error": "Identificació no vàlida o caducada"}), 401
+    if data.get("type") not in ("entrada", "sortida"):
+        return jsonify({"ok": False, "error": "Direcció no vàlida"}), 400
+    try:
+        leave_type_id = int(data.get("leave_type_id"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Tipus de permís no vàlid"}), 400
+    try:
+        result = database.start_employee_leave(
+            identification["employee_id"], leave_type_id, data["type"],
+            method=identification["method"],
+            confirm_incident=data.get("confirm_incident") is True,
+        )
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+    if not result["ok"]:
+        if result.get("confirmation_required"):
+            identification["expires_at"] = time.monotonic() + IDENTIFICATION_TTL_SECONDS
+        return jsonify(result), 409
+    identification_tokens.pop(token, None)
+    return jsonify(result)
+
+
 @app.post("/api/punch")
 def punch():
     data = request.get_json(silent=True) or {}
