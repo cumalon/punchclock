@@ -94,3 +94,48 @@ def test_regularize_return_api_rejects_invalid_data(admin_client):
         json={"returned_at": "not-a-date", "reason": "Verificat"},
     )
     assert response.status_code == 400
+
+
+def test_regularize_return_api_preserves_punch_and_pending_status(admin_client, employee):
+    from datetime import datetime, timedelta
+
+    worker = employee()
+    type_id = database.create_leave_type("Pausa supervisada")
+    start = (datetime.now(database.LOCAL_TIMEZONE) - timedelta(hours=2))
+    start_at = start.isoformat(timespec="seconds")
+    returned_at = (start + timedelta(minutes=20)).isoformat(timespec="seconds")
+    with database.get_connection() as db:
+        punch_id = db.execute("""
+            INSERT INTO punch (employee_id, timestamp, type, method)
+            VALUES (?, ?, 'sortida', 'pin')
+        """, (worker["id"], start_at)).lastrowid
+        leave_id = db.execute("""
+            INSERT INTO employee_leave
+                (employee_id, leave_type_id, started_at, record_state,
+                 requires_supervisor, start_punch_id)
+            VALUES (?, ?, ?, 'needs_regularization', 1, ?)
+        """, (worker["id"], type_id, start_at, punch_id)).lastrowid
+        punch_count = db.execute("SELECT count(*) FROM punch").fetchone()[0]
+
+    classify = admin_client.post(
+        f"/api/admin/leaves/{leave_id}/classify", json={"kind": "return"}
+    )
+    assert classify.status_code == 200
+    response = admin_client.post(
+        f"/api/admin/leaves/{leave_id}/regularize-return",
+        json={"returned_at": returned_at, "reason": "Retorn confirmat"},
+    )
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "pending"
+    detail = admin_client.get(f"/api/admin/leaves/{leave_id}").get_json()["leave"]
+    assert detail["ended_at"] == returned_at
+    assert detail["record_state"] == "finished"
+    assert detail["regularization_kind"] == "return"
+    assert detail["requires_supervisor"] == 1
+    assert detail["end_punch_id"] is None
+    assert detail["regularization_reason"] == "Retorn confirmat"
+    with database.get_connection() as db:
+        assert db.execute("SELECT count(*) FROM punch").fetchone()[0] == punch_count
+        assert db.execute(
+            "SELECT timestamp FROM punch WHERE id = ?", (punch_id,)
+        ).fetchone()[0] == start_at
