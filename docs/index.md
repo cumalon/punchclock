@@ -22,7 +22,7 @@ Implemented and validated:
 - Administrator sessions invalidated when the account is disabled or its credentials change.
 - Production layout using `punch`, `/home/punch/timeclockpi` and `/var/lib/timeclockpi`, with persistent bounded technical logging.
 
-For a new terminal, follow the [clean installation procedure](deployment.md#clean-installation-on-a-new-raspberry-pi). See also [Architecture](architecture.md), [Development](development.md), [Deployment](deployment.md), and [Operations](operations.md).
+For a new terminal, follow the [clean installation procedure](deployment.md#clean-installation-on-a-new-raspberry-pi). See also [Architecture](architecture.md), [Development](development.md), [Deployment](deployment.md), [Operations](operations.md), and the [leave configuration design](leave-configuration.md).
 
 ## v1 principles
 

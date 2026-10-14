@@ -669,7 +669,7 @@ def admin_create_leave_type():
         type_id = database.create_leave_type(
             data.get("name"), data.get("approval_policy", "manual"),
             data.get("max_minutes"), data.get("auto_approve_minutes"),
-            data.get("active", True),
+            data.get("active", True), data.get("guaranteed_daily_minutes", 0),
         )
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
@@ -683,7 +683,7 @@ def admin_update_leave_type(type_id):
         database.update_leave_type(
             type_id, data.get("name"), data.get("approval_policy", "manual"),
             data.get("max_minutes"), data.get("auto_approve_minutes"),
-            data.get("active", True),
+            data.get("active", True), data.get("guaranteed_daily_minutes", 0),
         )
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 400

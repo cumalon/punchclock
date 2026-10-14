@@ -165,7 +165,8 @@
                             </select>
                         </label>
                         <label>Durada de referència (minuts, opcional) <input id="leave-type-max" type="number" min="1" step="1"></label>
-                        <label>Límit d’aprovació automàtica (minuts) <input id="leave-type-threshold" type="number" min="1" step="1"></label>
+                        <label>Llindar d’aprovació automàtica (minuts acumulats al dia) <input id="leave-type-threshold" type="number" min="1" step="1"></label>
+                        <label>Minuts garantits diaris <input id="leave-type-guaranteed" type="number" min="0" step="1" value="0" required></label>
                         <button type="submit">Crear tipus</button>
                     </form>
                     <p id="leave-type-message" role="status"></p>

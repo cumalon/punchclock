@@ -9,18 +9,24 @@ def test_leave_types_create_update_and_delete(admin_client):
     created = admin_client.post("/api/admin/leave-types", json={
         "name": "Esmorzar", "approval_policy": "threshold",
         "auto_approve_minutes": 20, "max_minutes": 40,
+        "guaranteed_daily_minutes": 30,
     })
     assert created.status_code == 201
     type_id = created.get_json()["id"]
     rows = admin_client.get("/api/admin/leave-types").get_json()["leave_types"]
     assert len(rows) == 1
     assert rows[0]["name"] == "Esmorzar"
+    assert rows[0]["guaranteed_daily_minutes"] == 30
+    assert rows[0]["auto_approve_minutes"] == 20
     assert rows[0]["used"] == 0
     assert admin_client.put(f"/api/admin/leave-types/{type_id}", json={
         "name": "Esmorzar", "approval_policy": "threshold",
         "auto_approve_minutes": 20, "max_minutes": 40, "active": False,
+        "guaranteed_daily_minutes": 25,
     }).status_code == 200
-    assert admin_client.get("/api/admin/leave-types").get_json()["leave_types"][0]["active"] == 0
+    updated = admin_client.get("/api/admin/leave-types").get_json()["leave_types"][0]
+    assert updated["active"] == 0
+    assert updated["guaranteed_daily_minutes"] == 25
     assert admin_client.delete(f"/api/admin/leave-types/{type_id}").status_code == 200
     assert admin_client.get("/api/admin/leave-types").get_json()["leave_types"] == []
 
@@ -50,6 +56,9 @@ def test_used_leave_type_cannot_be_deleted(admin_client, employee):
     {"name": "Test", "approval_policy": "threshold"},
     {"name": "Test", "approval_policy": "automatic", "auto_approve_minutes": 20},
     {"name": "Test", "max_minutes": -1},
+    {"name": "Test", "guaranteed_daily_minutes": -1},
+    {"name": "Test", "guaranteed_daily_minutes": True},
+    {"name": "Test", "guaranteed_daily_minutes": 1.5},
     {"name": "Test", "max_minutes": True},
     {"name": "Test", "active": "false"},
 ])
@@ -60,6 +69,20 @@ def test_leave_type_invalid_input(admin_client, payload):
 def test_leave_type_duplicate_name(admin_client):
     assert admin_client.post("/api/admin/leave-types", json={"name": "Esmorzar"}).status_code == 201
     assert admin_client.post("/api/admin/leave-types", json={"name": "esmorzar"}).status_code == 400
+
+
+def test_leave_type_guaranteed_minutes_accept_zero_and_default_to_zero(admin_client):
+    created = admin_client.post("/api/admin/leave-types", json={
+        "name": "Visita mèdica", "guaranteed_daily_minutes": 0,
+    })
+    assert created.status_code == 201
+    listed = admin_client.get("/api/admin/leave-types").get_json()["leave_types"]
+    assert listed[0]["guaranteed_daily_minutes"] == 0
+
+    legacy_client = admin_client.post("/api/admin/leave-types", json={"name": "Altres"})
+    assert legacy_client.status_code == 201
+    listed = admin_client.get("/api/admin/leave-types").get_json()["leave_types"]
+    assert listed[1]["guaranteed_daily_minutes"] == 0
 
 
 def test_supervisor_cannot_manage_leave_types(admin_client):
@@ -95,7 +118,7 @@ def test_flexible_approval_threshold_can_exceed_reference_duration(admin_client)
 def test_list_active_leave_types_excludes_inactive_and_orders_by_name(client):
     database.create_leave_type("Zebra", approval_policy="manual")
     database.create_leave_type(
-        "Esmorzar", approval_policy="threshold",
+        "Esmorzar", approval_policy="threshold", guaranteed_daily_minutes=30,
         max_minutes=20, auto_approve_minutes=30,
     )
     database.create_leave_type("Amagat", approval_policy="automatic", active=False)
@@ -106,7 +129,13 @@ def test_list_active_leave_types_excludes_inactive_and_orders_by_name(client):
     assert rows[0]["approval_policy"] == "threshold"
     assert rows[0]["max_minutes"] == 20
     assert rows[0]["auto_approve_minutes"] == 30
+    assert rows[0]["guaranteed_daily_minutes"] == 30
     assert all("active" not in row and "used" not in row for row in rows)
+
+
+def test_admin_form_exposes_guaranteed_minutes_with_zero_allowed(admin_client):
+    page = admin_client.get("/admin").get_data(as_text=True)
+    assert 'id="leave-type-guaranteed" type="number" min="0"' in page
 
 
 def test_list_active_leave_types_empty(client):

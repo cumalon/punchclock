@@ -97,6 +97,8 @@ def init_database():
                 name TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
                 sort_order INTEGER NOT NULL DEFAULT 0,
+                guaranteed_daily_minutes INTEGER NOT NULL DEFAULT 0
+                    CHECK (guaranteed_daily_minutes >= 0),
                 approval_policy TEXT NOT NULL DEFAULT 'manual'
                     CHECK (approval_policy IN ('manual', 'automatic', 'threshold')),
                 max_minutes INTEGER CHECK (max_minutes IS NULL OR max_minutes > 0),
@@ -220,6 +222,12 @@ def init_database():
         if "sort_order" not in leave_type_columns:
             db.execute("ALTER TABLE leave_type ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
             db.execute("UPDATE leave_type SET sort_order = id")
+        if "guaranteed_daily_minutes" not in leave_type_columns:
+            db.execute("""
+                ALTER TABLE leave_type
+                ADD COLUMN guaranteed_daily_minutes INTEGER NOT NULL DEFAULT 0
+                    CHECK (guaranteed_daily_minutes >= 0)
+            """)
 
         review_columns = {row["name"] for row in db.execute("PRAGMA table_info(punch_incident_review)").fetchall()}
         review_indexes = db.execute("PRAGMA index_list(punch_incident_review)").fetchall()
@@ -963,7 +971,8 @@ def list_punch_incident_reviews(punch_id):
     return [dict(row) for row in rows]
 
 
-def _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minutes):
+def _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minutes,
+                         guaranteed_daily_minutes):
     name = str(name or "").strip()
     if not name or len(name) > 100:
         raise ValueError("El nom ha de tenir entre 1 i 100 caràcters")
@@ -972,6 +981,8 @@ def _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minute
     for value in (max_minutes, auto_approve_minutes):
         if value is not None and (type(value) is not int or value <= 0):
             raise ValueError("La durada ha de ser un nombre enter positiu")
+    if type(guaranteed_daily_minutes) is not int or guaranteed_daily_minutes < 0:
+        raise ValueError("Els minuts garantits han de ser un nombre enter no negatiu")
     if approval_policy == "threshold" and auto_approve_minutes is None:
         raise ValueError("Cal indicar el límit d'aprovació automàtica")
     if approval_policy != "threshold" and auto_approve_minutes is not None:
@@ -991,24 +1002,38 @@ def list_leave_types():
 
 
 def create_leave_type(name, approval_policy="manual", max_minutes=None,
-                      auto_approve_minutes=None, active=True):
-    name = _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minutes)
+                      auto_approve_minutes=None, active=True,
+                      guaranteed_daily_minutes=0):
+    name = _validate_leave_type(
+        name, approval_policy, max_minutes, auto_approve_minutes,
+        guaranteed_daily_minutes,
+    )
     if type(active) is not bool:
         raise ValueError("Estat actiu no vàlid")
     with get_connection() as db:
         try:
             cursor = db.execute("""
-                INSERT INTO leave_type (name, approval_policy, max_minutes, auto_approve_minutes, active, sort_order)
-                VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM leave_type), 1))
-            """, (name, approval_policy, max_minutes, auto_approve_minutes, int(active)))
+                INSERT INTO leave_type (
+                    name, approval_policy, max_minutes, auto_approve_minutes,
+                    active, guaranteed_daily_minutes, sort_order
+                )
+                VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM leave_type), 1))
+            """, (
+                name, approval_policy, max_minutes, auto_approve_minutes,
+                int(active), guaranteed_daily_minutes,
+            ))
         except sqlite3.IntegrityError:
             raise ValueError("Ja existeix un tipus de permís amb aquest nom")
         return cursor.lastrowid
 
 
 def update_leave_type(type_id, name, approval_policy, max_minutes=None,
-                      auto_approve_minutes=None, active=True):
-    name = _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minutes)
+                      auto_approve_minutes=None, active=True,
+                      guaranteed_daily_minutes=0):
+    name = _validate_leave_type(
+        name, approval_policy, max_minutes, auto_approve_minutes,
+        guaranteed_daily_minutes,
+    )
     if type(active) is not bool:
         raise ValueError("Estat actiu no vàlid")
     with get_connection() as db:
@@ -1016,9 +1041,13 @@ def update_leave_type(type_id, name, approval_policy, max_minutes=None,
             cursor = db.execute("""
                 UPDATE leave_type
                 SET name = ?, approval_policy = ?, max_minutes = ?,
-                    auto_approve_minutes = ?, active = ?
+                    auto_approve_minutes = ?, active = ?,
+                    guaranteed_daily_minutes = ?
                 WHERE id = ?
-            """, (name, approval_policy, max_minutes, auto_approve_minutes, int(active), type_id))
+            """, (
+                name, approval_policy, max_minutes, auto_approve_minutes,
+                int(active), guaranteed_daily_minutes, type_id,
+            ))
         except sqlite3.IntegrityError:
             raise ValueError("Ja existeix un tipus de permís amb aquest nom")
         if not cursor.rowcount:
@@ -1058,7 +1087,8 @@ def list_active_leave_types():
     """Tipus disponibles al terminal, sense exposar els inactius."""
     with get_connection() as db:
         rows = db.execute("""
-            SELECT id, name, approval_policy, max_minutes, auto_approve_minutes
+            SELECT id, name, approval_policy, max_minutes, auto_approve_minutes,
+                   guaranteed_daily_minutes
             FROM leave_type WHERE active = 1
             ORDER BY sort_order, id
         """).fetchall()

@@ -1101,11 +1101,15 @@ document.getElementById("remove-logo").addEventListener("click", () => {
 loadLogoStatus();
 
  
-function leaveTypePayload(name, policy, maxValue, thresholdValue, active) {
+function leaveTypePayload(name, policy, maxValue, thresholdValue, guaranteedValue, active) {
     const max_minutes = maxValue.trim() === "" ? null : Number(maxValue);
     const auto_approve_minutes = policy === "threshold" && thresholdValue.trim() !== ""
         ? Number(thresholdValue) : null;
-    return {name: name.trim(), approval_policy: policy, max_minutes, auto_approve_minutes, active};
+    const guaranteed_daily_minutes = guaranteedValue.trim() === "" ? 0 : Number(guaranteedValue);
+    return {
+        name: name.trim(), approval_policy: policy, max_minutes, auto_approve_minutes,
+        guaranteed_daily_minutes, active
+    };
 }
 
 async function leaveTypeRequest(url, method, payload) {
@@ -1151,10 +1155,15 @@ async function loadLeaveTypes() {
             max.placeholder = "Durada de referència (min)";
             max.setAttribute("aria-label", "Durada de referència en minuts");
             max.value = item.max_minutes ?? "";
+            const guaranteed = document.createElement("input");
+            guaranteed.type = "number"; guaranteed.min = "0"; guaranteed.step = "1";
+            guaranteed.placeholder = "Temps garantit diari (min)";
+            guaranteed.setAttribute("aria-label", "Minuts garantits diaris");
+            guaranteed.value = item.guaranteed_daily_minutes ?? 0;
             const threshold = document.createElement("input");
             threshold.type = "number"; threshold.min = "1"; threshold.step = "1";
-            threshold.placeholder = "Límit automàtic (min)";
-            threshold.setAttribute("aria-label", "Límit automàtic en minuts");
+            threshold.placeholder = "Llindar automàtic diari (min)";
+            threshold.setAttribute("aria-label", "Llindar d'aprovació automàtica en minuts diaris");
             threshold.value = item.auto_approve_minutes ?? "";
             const syncThreshold = () => {
                 threshold.disabled = policy.value !== "threshold";
@@ -1180,7 +1189,10 @@ async function loadLeaveTypes() {
                 save.disabled = true;
                 try {
                     await leaveTypeRequest("/api/admin/leave-types/" + item.id, "PUT",
-                        leaveTypePayload(name.value, policy.value, max.value, threshold.value, active.checked));
+                        leaveTypePayload(
+                            name.value, policy.value, max.value, threshold.value,
+                            guaranteed.value, active.checked
+                        ));
                     status.textContent = "Desat";
                     await loadLeaveTypes();
                 } catch (error) { status.textContent = error.message; }
@@ -1197,6 +1209,7 @@ async function loadLeaveTypes() {
             name.classList.add("leave-type-name");
             policy.classList.add("leave-type-policy");
             max.classList.add("leave-type-minutes");
+            guaranteed.classList.add("leave-type-minutes");
             threshold.classList.add("leave-type-minutes");
             const handle = document.createElement("span");
             handle.className = "leave-type-drag-handle";
@@ -1245,7 +1258,7 @@ async function loadLeaveTypes() {
             actions.className = "leave-type-actions";
             actions.append(save, remove);
             status.className = "leave-type-status";
-            row.append(handle, name, policy, max, threshold, activeLabel, actions, status);
+            row.append(handle, name, policy, max, guaranteed, threshold, activeLabel, actions, status);
             container.appendChild(row);
         }
     } catch (error) {
@@ -1263,6 +1276,7 @@ if (newLeaveTypeForm) newLeaveTypeForm.addEventListener("submit", async event =>
             document.getElementById("leave-type-policy").value,
             document.getElementById("leave-type-max").value,
             document.getElementById("leave-type-threshold").value,
+            document.getElementById("leave-type-guaranteed").value,
             true
         ));
         newLeaveTypeForm.reset();
