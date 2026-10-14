@@ -286,12 +286,25 @@ def test_daily_decision_api_lists_details_and_persists_history(
     assert [row["id"] for row in listing.get_json()["daily_decisions"]] == [
         decision_id
     ]
+    invalid_filter = admin_client.get(
+        "/api/admin/daily-leave-decisions?filter=invalid"
+    )
+    assert invalid_filter.status_code == 400
+    assert invalid_filter.get_json()["error"] == "Filtre de decisions diàries no vàlid"
     detail = admin_client.get(
         f"/api/admin/daily-leave-decisions/{decision_id}"
     )
     assert detail.status_code == 200
     assert len(detail.get_json()["daily_decision"]["leaves"]) == 4
 
+    invalid_decision = admin_client.post(
+        f"/api/admin/daily-leave-decisions/{decision_id}/decision",
+        json={"status": "partial", "reason": "No parcial"},
+    )
+    assert invalid_decision.status_code == 400
+    assert invalid_decision.get_json()["error"] == (
+        "No s'ha pogut registrar la decisió diària. Revisa les dades i l'estat del còmput."
+    )
     response = admin_client.post(
         f"/api/admin/daily-leave-decisions/{decision_id}/decision",
         json={"status": "approved", "reason": "Excés revisat"},

@@ -653,8 +653,10 @@ def admin_daily_leave_decisions():
     filter_by = request.args.get("filter", "all")
     try:
         decisions = database.list_daily_leave_decisions_for_supervision(filter_by)
-    except ValueError as error:
-        return jsonify({"ok": False, "error": str(error)}), 400
+    except ValueError:
+        return jsonify({
+            "ok": False, "error": "Filtre de decisions diàries no vàlid",
+        }), 400
     return jsonify({"ok": True, "daily_decisions": decisions})
 
 
@@ -674,8 +676,11 @@ def admin_decide_daily_leave(decision_id):
             decision_id, data.get("status"),
             session["admin_user_id"], data.get("reason"),
         )
-    except ValueError as error:
-        return jsonify({"ok": False, "error": str(error)}), 400
+    except ValueError:
+        return jsonify({
+            "ok": False,
+            "error": "No s'ha pogut registrar la decisió diària. Revisa les dades i l'estat del còmput.",
+        }), 400
     return jsonify(result)
 
 
