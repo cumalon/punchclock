@@ -1353,6 +1353,8 @@ async function loadSupervisionLeaves() {
                 const state = decision.status === "pending" ? "Excés pendent" :
                     decision.status === "approved" && decision.decision_source === "automatic"
                         ? "Aprovat automàticament" :
+                    decision.status === "approved" && decision.decision_source === "system"
+                        ? "Sense excés pendent" :
                     decision.status === "approved" ? "Excedent aprovat" : "Excedent rebutjat";
                 const cells = [
                     Number.isNaN(date.getTime()) ? decision.local_date : date.toLocaleDateString("ca-ES"),
@@ -1794,6 +1796,11 @@ async function loadDailyLeaveDecisionDetail(decisionId) {
         const actions = document.createElement("section");
         actions.className = "leave-detail-block leave-detail-actions";
         actions.appendChild(document.createElement("h3")).textContent = "Decisió única sobre l’excés";
+        if (decision.status === "approved" && decision.decision_source === "system") {
+            const note = document.createElement("p");
+            note.textContent = "No hi ha excés pendent de revisió; només computa el temps garantit.";
+            actions.appendChild(note);
+        } else {
         const form = document.createElement("form");
         const actionLabel = document.createElement("label");
         actionLabel.textContent = "Decisió ";
@@ -1855,6 +1862,7 @@ async function loadDailyLeaveDecisionDetail(decisionId) {
             }
         });
         actions.appendChild(form);
+        }
         root.appendChild(actions);
 
         const history = document.createElement("details");

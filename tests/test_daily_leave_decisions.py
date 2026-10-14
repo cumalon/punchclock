@@ -176,3 +176,82 @@ def test_cross_midnight_leave_is_not_silently_added_to_a_daily_group(client, emp
     assert leave["status"] == "pending"
     assert leave["requires_supervisor"] == 1
     assert leave["daily_decision_id"] is None
+
+
+def test_new_daily_groups_do_not_reinterpret_legacy_individual_decisions(client, employee):
+    worker = employee()
+    leave_type_id = database.create_leave_type("Esmorzar")
+    with database.get_connection() as db:
+        legacy_id = db.execute("""
+            INSERT INTO employee_leave
+                (employee_id, leave_type_id, started_at, ended_at,
+                 record_state, status)
+            VALUES (?, ?, '2026-10-11T09:00:00+02:00',
+                    '2026-10-11T09:20:00+02:00', 'finished', 'approved')
+        """, (worker["id"], leave_type_id)).lastrowid
+    _, intervals = _record_intervals(
+        worker["id"], [10], leave_type_id=leave_type_id
+    )
+
+    decision = _daily_decision(intervals[0][0])
+    with database.get_connection() as db:
+        legacy = db.execute(
+            "SELECT status, daily_decision_id FROM employee_leave WHERE id = ?",
+            (legacy_id,),
+        ).fetchone()
+    assert decision["total_seconds"] == 10 * 60
+    assert legacy["status"] == "approved"
+    assert legacy["daily_decision_id"] is None
+    assert len(database.list_employee_leaves_for_supervision("all")) == 1
+
+
+def test_daily_decision_api_requires_authentication_and_csrf(client):
+    assert client.get("/api/admin/daily-leave-decisions").status_code == 401
+    login = client.post("/api/admin/login", json={
+        "username": "admin", "password": "test-administrator-password",
+    })
+    assert login.status_code == 200
+    response = client.post(
+        "/api/admin/daily-leave-decisions/1/decision",
+        json={"status": "approved", "reason": "Revisat"},
+    )
+    assert response.status_code == 403
+
+
+def test_daily_decision_api_lists_details_and_persists_history(
+    admin_client, employee
+):
+    worker = employee()
+    _, intervals = _record_intervals(worker["id"], [10, 12, 8, 7])
+    decision_id = intervals[0][1]["daily_decision"]["id"]
+
+    listing = admin_client.get(
+        "/api/admin/daily-leave-decisions?filter=approval"
+    )
+    assert listing.status_code == 200
+    assert [row["id"] for row in listing.get_json()["daily_decisions"]] == [
+        decision_id
+    ]
+    detail = admin_client.get(
+        f"/api/admin/daily-leave-decisions/{decision_id}"
+    )
+    assert detail.status_code == 200
+    assert len(detail.get_json()["daily_decision"]["leaves"]) == 4
+
+    response = admin_client.post(
+        f"/api/admin/daily-leave-decisions/{decision_id}/decision",
+        json={"status": "approved", "reason": "Excés revisat"},
+    )
+    assert response.status_code == 200
+    detail = admin_client.get(
+        f"/api/admin/daily-leave-decisions/{decision_id}"
+    ).get_json()["daily_decision"]
+    assert detail["status"] == "approved"
+    assert detail["decision_history"][-1]["reviewer_name"] == "admin"
+    assert detail["decision_history"][-1]["reason"] == "Excés revisat"
+
+    legacy_action = admin_client.post(
+        f"/api/admin/leaves/{intervals[0][0]}/decision",
+        json={"status": "rejected", "reason": "No"},
+    )
+    assert legacy_action.status_code == 400

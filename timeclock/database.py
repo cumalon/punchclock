@@ -187,6 +187,11 @@ def init_database():
                 decision_source TEXT NOT NULL DEFAULT 'system'
                     CHECK (decision_source IN ('system', 'automatic', 'supervisor')),
                 total_seconds INTEGER NOT NULL DEFAULT 0 CHECK (total_seconds >= 0),
+                approval_policy TEXT NOT NULL
+                    CHECK (approval_policy IN ('manual', 'automatic', 'threshold')),
+                auto_approve_minutes INTEGER,
+                guaranteed_daily_minutes INTEGER NOT NULL
+                    CHECK (guaranteed_daily_minutes >= 0),
                 updated_at TEXT NOT NULL,
                 UNIQUE (employee_id, leave_type_id, local_date)
             );
@@ -206,6 +211,11 @@ def init_database():
                 new_status TEXT NOT NULL
                     CHECK (new_status IN ('pending', 'approved', 'rejected')),
                 total_seconds INTEGER NOT NULL CHECK (total_seconds >= 0),
+                approval_policy TEXT NOT NULL
+                    CHECK (approval_policy IN ('manual', 'automatic', 'threshold')),
+                auto_approve_minutes INTEGER,
+                guaranteed_daily_minutes INTEGER NOT NULL
+                    CHECK (guaranteed_daily_minutes >= 0),
                 reason TEXT NOT NULL DEFAULT '',
                 CHECK (
                     (action = 'supervisor_decision' AND admin_user_id IS NOT NULL
@@ -1467,7 +1477,8 @@ def _refresh_daily_leave_decision(db, leave_id):
         return None
 
     decision = db.execute("""
-        SELECT id, status, decision_source, total_seconds
+        SELECT id, status, decision_source, total_seconds, approval_policy,
+               auto_approve_minutes, guaranteed_daily_minutes
         FROM daily_leave_decision
         WHERE employee_id = ? AND leave_type_id = ? AND local_date = ?
     """, (leave["employee_id"], leave["leave_type_id"], local_date)).fetchone()
@@ -1476,10 +1487,13 @@ def _refresh_daily_leave_decision(db, leave_id):
         decision_id = db.execute("""
             INSERT INTO daily_leave_decision
                 (employee_id, leave_type_id, local_date, status,
-                 decision_source, total_seconds, updated_at)
-            VALUES (?, ?, ?, 'pending', 'system', 0, ?)
+                 decision_source, total_seconds, approval_policy,
+                 auto_approve_minutes, guaranteed_daily_minutes, updated_at)
+            VALUES (?, ?, ?, 'pending', 'system', 0, ?, ?, ?, ?)
         """, (
             leave["employee_id"], leave["leave_type_id"], local_date,
+            leave["approval_policy"], leave["auto_approve_minutes"],
+            leave["guaranteed_daily_minutes"],
             datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds"),
         )).lastrowid
     else:
@@ -1497,12 +1511,20 @@ def _refresh_daily_leave_decision(db, leave_id):
     total_seconds = sum(_leave_duration_seconds(member) for member in members)
     requires_supervisor = any(member["requires_supervisor"] for member in members)
     total_changed = created or total_seconds != decision["total_seconds"]
+    policy_changed = (
+        not created and (
+            decision["approval_policy"] != leave["approval_policy"]
+            or decision["auto_approve_minutes"] != leave["auto_approve_minutes"]
+            or decision["guaranteed_daily_minutes"] != leave["guaranteed_daily_minutes"]
+        )
+    )
     invalidated = (
-        not created and total_changed
+        not created and (total_changed or policy_changed)
         and decision["status"] != "pending"
         and decision["decision_source"] == "supervisor"
     )
 
+    no_excess = total_seconds <= leave["guaranteed_daily_minutes"] * 60
     if invalidated or requires_supervisor:
         status, source = "pending", "system"
     elif leave["approval_policy"] == "automatic" or (
@@ -1510,6 +1532,8 @@ def _refresh_daily_leave_decision(db, leave_id):
         and total_seconds <= leave["auto_approve_minutes"] * 60
     ):
         status, source = "approved", "automatic"
+    elif no_excess:
+        status, source = "approved", "system"
     else:
         status, source = "pending", "system"
 
@@ -1525,21 +1549,30 @@ def _refresh_daily_leave_decision(db, leave_id):
     else:
         action = "total_changed"
 
-    if total_changed:
+    if total_changed or policy_changed:
         changed_at = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
         db.execute("""
             UPDATE daily_leave_decision
-            SET status = ?, decision_source = ?, total_seconds = ?, updated_at = ?
+            SET status = ?, decision_source = ?, total_seconds = ?,
+                approval_policy = ?, auto_approve_minutes = ?,
+                guaranteed_daily_minutes = ?, updated_at = ?
             WHERE id = ?
-        """, (status, source, total_seconds, changed_at, decision_id))
+        """, (
+            status, source, total_seconds, leave["approval_policy"],
+            leave["auto_approve_minutes"], leave["guaranteed_daily_minutes"],
+            changed_at, decision_id,
+        ))
         db.execute("""
             INSERT INTO daily_leave_decision_history
                 (decision_id, changed_at, action, previous_status,
-                 new_status, total_seconds)
-            VALUES (?, ?, ?, ?, ?, ?)
+                 new_status, total_seconds, approval_policy,
+                 auto_approve_minutes, guaranteed_daily_minutes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             decision_id, changed_at, action,
             None if created else decision["status"], status, total_seconds,
+            leave["approval_policy"], leave["auto_approve_minutes"],
+            leave["guaranteed_daily_minutes"],
         ))
         db.execute(
             "UPDATE employee_leave SET status = ? WHERE daily_decision_id = ?",
@@ -1556,11 +1589,12 @@ def _refresh_daily_leave_decision(db, leave_id):
             INSERT INTO daily_leave_decision_history
                 (decision_id, changed_at, action, previous_status,
                  new_status, total_seconds)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             decision_id, changed_at,
             "automatic_approval" if source == "automatic" else "total_changed",
-            decision["status"], status, total_seconds,
+            decision["status"], status, total_seconds, leave["approval_policy"],
+            leave["auto_approve_minutes"], leave["guaranteed_daily_minutes"],
         ))
         db.execute(
             "UPDATE employee_leave SET status = ? WHERE daily_decision_id = ?",
@@ -1620,11 +1654,11 @@ def list_daily_leave_decisions_for_supervision(filter_by="all"):
             SELECT d.id, d.employee_id, e.name AS employee_name,
                    d.leave_type_id, lt.name AS leave_type_name,
                    d.local_date, d.status, d.decision_source, d.total_seconds,
-                   lt.guaranteed_daily_minutes,
-                   MIN(d.total_seconds, lt.guaranteed_daily_minutes * 60)
+                   d.guaranteed_daily_minutes,
+                   MIN(d.total_seconds, d.guaranteed_daily_minutes * 60)
                        AS guaranteed_seconds,
                    CASE WHEN d.status = 'approved' THEN d.total_seconds
-                        ELSE MIN(d.total_seconds, lt.guaranteed_daily_minutes * 60)
+                        ELSE MIN(d.total_seconds, d.guaranteed_daily_minutes * 60)
                    END AS recognized_seconds,
                    (SELECT COUNT(*) FROM employee_leave el
                     WHERE el.daily_decision_id = d.id) AS leave_count,
@@ -1646,13 +1680,13 @@ def get_daily_leave_decision_for_supervision(decision_id):
     with get_connection() as db:
         decision = db.execute("""
             SELECT d.*, e.name AS employee_name, lt.name AS leave_type_name,
-                   lt.guaranteed_daily_minutes,
-                   MIN(d.total_seconds, lt.guaranteed_daily_minutes * 60)
+                   d.guaranteed_daily_minutes,
+                   MIN(d.total_seconds, d.guaranteed_daily_minutes * 60)
                        AS guaranteed_seconds,
                    CASE WHEN d.status = 'approved' THEN d.total_seconds
-                        ELSE MIN(d.total_seconds, lt.guaranteed_daily_minutes * 60)
+                    ELSE MIN(d.total_seconds, d.guaranteed_daily_minutes * 60)
                    END AS recognized_seconds,
-                   MAX(0, d.total_seconds - lt.guaranteed_daily_minutes * 60)
+                   MAX(0, d.total_seconds - d.guaranteed_daily_minutes * 60)
                        AS excess_seconds
             FROM daily_leave_decision d
             JOIN employee e ON e.id = d.employee_id
@@ -1670,7 +1704,8 @@ def get_daily_leave_decision_for_supervision(decision_id):
         """, (decision_id,)).fetchall()
         history = db.execute("""
             SELECT h.id, h.changed_at, h.action, h.previous_status,
-                   h.new_status, h.total_seconds, h.reason,
+                   h.new_status, h.total_seconds, h.approval_policy,
+                   h.auto_approve_minutes, h.guaranteed_daily_minutes, h.reason,
                    u.username AS reviewer_name
             FROM daily_leave_decision_history h
             LEFT JOIN admin_user u ON u.id = h.admin_user_id
@@ -1697,7 +1732,9 @@ def decide_daily_leave(decision_id, new_status, admin_user_id, reason):
         if reviewer is None:
             raise ValueError("Supervisor no vàlid o inactiu")
         decision = db.execute("""
-            SELECT status, total_seconds FROM daily_leave_decision WHERE id = ?
+            SELECT status, total_seconds, approval_policy, auto_approve_minutes,
+                   guaranteed_daily_minutes
+            FROM daily_leave_decision WHERE id = ?
         """, (decision_id,)).fetchone()
         if decision is None:
             raise ValueError("Decisió diària no trobada")
@@ -1707,11 +1744,14 @@ def decide_daily_leave(decision_id, new_status, admin_user_id, reason):
         db.execute("""
             INSERT INTO daily_leave_decision_history
                 (decision_id, admin_user_id, changed_at, action,
-                 previous_status, new_status, total_seconds, reason)
-            VALUES (?, ?, ?, 'supervisor_decision', ?, ?, ?, ?)
+                 previous_status, new_status, total_seconds, approval_policy,
+                 auto_approve_minutes, guaranteed_daily_minutes, reason)
+            VALUES (?, ?, ?, 'supervisor_decision', ?, ?, ?, ?, ?, ?, ?)
         """, (
             decision_id, admin_user_id, changed_at, decision["status"],
-            new_status, decision["total_seconds"], reason.strip(),
+            new_status, decision["total_seconds"], decision["approval_policy"],
+            decision["auto_approve_minutes"], decision["guaranteed_daily_minutes"],
+            reason.strip(),
         ))
         db.execute("""
             UPDATE daily_leave_decision
