@@ -1,5 +1,8 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
+
+import pytest
 
 from timeclock import database
 
@@ -134,6 +137,44 @@ def test_new_interval_invalidates_supervisor_approval_and_keeps_history(client, 
     ]
 
 
+def test_regularization_updates_daily_total_and_invalidates_decision(client, employee):
+    worker = employee()
+    leave_type_id, intervals = _record_intervals(
+        worker["id"], [37], policy="manual", guaranteed=30, threshold=None
+    )
+    decision_id = intervals[0][1]["daily_decision"]["id"]
+    database.decide_daily_leave(
+        decision_id, "approved", _admin_id(), "Excés revisat"
+    )
+
+    start = "2026-10-11T11:00:00+02:00"
+    with database.get_connection() as db:
+        punch_id = db.execute("""
+            INSERT INTO punch (employee_id, timestamp, type, method)
+            VALUES (?, ?, 'sortida', 'pin')
+        """, (worker["id"], start)).lastrowid
+        leave_id = db.execute("""
+            INSERT INTO employee_leave
+                (employee_id, leave_type_id, started_at, status, record_state,
+                 requires_supervisor, start_punch_id)
+            VALUES (?, ?, ?, 'pending', 'needs_regularization', 1, ?)
+        """, (worker["id"], leave_type_id, start, punch_id)).lastrowid
+
+    database.classify_employee_leave_departure(
+        leave_id, "return", _admin_id()
+    )
+    database.regularize_employee_leave_return(
+        leave_id, "2026-10-11T11:10:00+02:00", _admin_id(),
+        "Retorn confirmat",
+    )
+
+    current = database.get_daily_leave_decision_for_supervision(decision_id)
+    assert current["total_seconds"] == 47 * 60
+    assert current["status"] == "pending"
+    assert current["recognized_seconds"] == 30 * 60
+    assert current["decision_history"][-1]["action"] == "invalidated"
+
+
 def test_manual_zero_guarantee_recognizes_time_only_after_approval(client, employee):
     worker = employee()
     _, intervals = _record_intervals(
@@ -149,6 +190,19 @@ def test_manual_zero_guarantee_recognizes_time_only_after_approval(client, emplo
     assert database.get_daily_leave_decision_for_supervision(
         decision["id"]
     )["recognized_seconds"] == 15 * 60
+
+
+def test_manual_guarantee_covers_short_day_without_excess_review(client, employee):
+    worker = employee()
+    _, intervals = _record_intervals(
+        worker["id"], [10], policy="manual", guaranteed=30, threshold=None
+    )
+    decision = _daily_decision(intervals[0][0])
+    assert decision["status"] == "approved"
+    assert decision["decision_source"] == "system"
+    assert decision["total_seconds"] == 10 * 60
+    assert decision["recognized_seconds"] == 10 * 60
+    assert database.list_daily_leave_decisions_for_supervision("approval") == []
 
 
 def test_daily_grouping_uses_madrid_local_date(client, employee):
@@ -255,3 +309,77 @@ def test_daily_decision_api_lists_details_and_persists_history(
         json={"status": "rejected", "reason": "No"},
     )
     assert legacy_action.status_code == 400
+
+
+def test_supervisor_can_access_daily_decision_review(client, employee):
+    worker = employee()
+    _, intervals = _record_intervals(worker["id"], [10, 12, 8, 7])
+    decision_id = intervals[0][1]["daily_decision"]["id"]
+    database.create_admin_user(
+        "daily-supervisor", "supervisor-password-123", role="supervisor"
+    )
+    login = client.post("/api/admin/login", json={
+        "username": "daily-supervisor",
+        "password": "supervisor-password-123",
+    })
+    assert login.status_code == 200
+    csrf_token = login.get_json()["csrf_token"]
+
+    listing = client.get("/api/admin/daily-leave-decisions?filter=approval")
+    assert listing.status_code == 200
+    response = client.post(
+        f"/api/admin/daily-leave-decisions/{decision_id}/decision",
+        headers={"X-CSRF-Token": csrf_token},
+        json={"status": "rejected", "reason": "No autoritzat"},
+    )
+    assert response.status_code == 200
+
+
+def test_daily_decision_migration_is_idempotent_and_auditable(client):
+    database.init_database()
+    database.init_database()
+    with database.get_connection() as db:
+        leave_columns = {
+            row["name"] for row in db.execute("PRAGMA table_info(employee_leave)")
+        }
+        decision_columns = {
+            row["name"] for row in db.execute("PRAGMA table_info(daily_leave_decision)")
+        }
+        history_columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(daily_leave_decision_history)")
+        }
+    assert "daily_decision_id" in leave_columns
+    assert {
+        "employee_id", "leave_type_id", "local_date", "status",
+        "total_seconds", "approval_policy", "auto_approve_minutes",
+        "guaranteed_daily_minutes",
+    } <= decision_columns
+    assert {
+        "decision_id", "admin_user_id", "action", "previous_status",
+        "new_status", "total_seconds", "reason",
+    } <= history_columns
+
+
+def test_daily_decision_rejects_partial_and_invalid_decisions(client, employee):
+    worker = employee()
+    _, intervals = _record_intervals(worker["id"], [10, 12, 8, 7])
+    decision_id = intervals[0][1]["daily_decision"]["id"]
+    with pytest.raises(ValueError, match="no vàlida"):
+        database.decide_daily_leave(
+            decision_id, "partially_approved", _admin_id(), "Parcial"
+        )
+
+
+def test_daily_supervision_ui_exposes_group_review_and_current_cache_version(
+    admin_client,
+):
+    page = admin_client.get("/admin").get_data(as_text=True)
+    script = (
+        Path(__file__).resolve().parents[1] / "static" / "admin.js"
+    ).read_text()
+    assert "admin.js?v=7.13" in page
+    assert "/api/admin/daily-leave-decisions" in script
+    assert "Aprovar tot l’excés" in script
+    assert "Rebutjar tot l’excés" in script
+    assert "Historial auditable de la decisió diària" in script

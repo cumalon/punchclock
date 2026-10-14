@@ -138,7 +138,7 @@ def test_admin_form_exposes_guaranteed_minutes_with_zero_allowed(admin_client):
     page = admin_client.get("/admin").get_data(as_text=True)
     assert 'id="leave-type-guaranteed" type="number" min="0"' in page
     assert 'admin.css?v=6.28' in page
-    assert 'admin.js?v=7.12' in page
+    assert 'admin.js?v=7.13' in page
     assert "La suma diària per treballador i tipus" in page
     assert "Ara el llindar d’aprovació s’aplica a cada permís individual." in page
 

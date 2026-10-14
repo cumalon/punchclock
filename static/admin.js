@@ -1801,67 +1801,67 @@ async function loadDailyLeaveDecisionDetail(decisionId) {
             note.textContent = "No hi ha excés pendent de revisió; només computa el temps garantit.";
             actions.appendChild(note);
         } else {
-        const form = document.createElement("form");
-        const actionLabel = document.createElement("label");
-        actionLabel.textContent = "Decisió ";
-        const action = document.createElement("select");
-        action.required = true;
-        for (const [value, label] of [
-            ["", "Selecciona una decisió"],
-            ["approved", "Aprovar tot l’excés"],
-            ["rejected", "Rebutjar tot l’excés"]
-        ]) {
-            if (value && value === decision.status) continue;
-            const option = document.createElement("option");
-            option.value = value;
-            option.textContent = label;
-            action.appendChild(option);
-        }
-        actionLabel.appendChild(action);
-        const reasonLabel = document.createElement("label");
-        reasonLabel.textContent = "Motiu de la decisió ";
-        const reason = document.createElement("textarea");
-        reason.required = true;
-        reason.rows = 3;
-        reasonLabel.appendChild(reason);
-        const button = document.createElement("button");
-        button.type = "submit";
-        button.textContent = "Registrar decisió diària";
-        form.append(actionLabel, reasonLabel, button);
-        form.addEventListener("submit", async event => {
-            event.preventDefault();
-            if (!form.reportValidity() || !reason.value.trim() || !action.value) {
-                supervisionLeaveDetailMessage.textContent =
-                    "Cal seleccionar una decisió i indicar-ne el motiu.";
-                return;
+            const form = document.createElement("form");
+            const actionLabel = document.createElement("label");
+            actionLabel.textContent = "Decisió ";
+            const action = document.createElement("select");
+            action.required = true;
+            for (const [value, label] of [
+                ["", "Selecciona una decisió"],
+                ["approved", "Aprovar tot l’excés"],
+                ["rejected", "Rebutjar tot l’excés"]
+            ]) {
+                if (value && value === decision.status) continue;
+                const option = document.createElement("option");
+                option.value = value;
+                option.textContent = label;
+                action.appendChild(option);
             }
-            button.disabled = true;
-            supervisionLeaveDetailMessage.textContent = "Desant decisió diària...";
-            try {
-                const decisionResponse = await fetch(
-                    "/api/admin/daily-leave-decisions/" + decision.id + "/decision",
-                    {
-                        method: "POST",
-                        headers: adminHeaders({"Content-Type": "application/json"}),
-                        body: JSON.stringify({
-                            status: action.value, reason: reason.value.trim()
-                        })
-                    }
-                );
-                const result = await decisionResponse.json();
-                if (!decisionResponse.ok || !result.ok) {
-                    throw new Error(result.error || "No s'ha pogut registrar la decisió");
+            actionLabel.appendChild(action);
+            const reasonLabel = document.createElement("label");
+            reasonLabel.textContent = "Motiu de la decisió ";
+            const reason = document.createElement("textarea");
+            reason.required = true;
+            reason.rows = 3;
+            reasonLabel.appendChild(reason);
+            const button = document.createElement("button");
+            button.type = "submit";
+            button.textContent = "Registrar decisió diària";
+            form.append(actionLabel, reasonLabel, button);
+            form.addEventListener("submit", async event => {
+                event.preventDefault();
+                if (!form.reportValidity() || !reason.value.trim() || !action.value) {
+                    supervisionLeaveDetailMessage.textContent =
+                        "Cal seleccionar una decisió i indicar-ne el motiu.";
+                    return;
                 }
-                await loadSupervisionLeaves();
-                await loadDailyLeaveDecisionDetail(decision.id);
-                supervisionLeaveDetailMessage.textContent =
-                    "Decisió diària registrada a l’historial.";
-            } catch (error) {
-                supervisionLeaveDetailMessage.textContent = error.message;
-                button.disabled = false;
-            }
-        });
-        actions.appendChild(form);
+                button.disabled = true;
+                supervisionLeaveDetailMessage.textContent = "Desant decisió diària...";
+                try {
+                    const decisionResponse = await fetch(
+                        "/api/admin/daily-leave-decisions/" + decision.id + "/decision",
+                        {
+                            method: "POST",
+                            headers: adminHeaders({"Content-Type": "application/json"}),
+                            body: JSON.stringify({
+                                status: action.value, reason: reason.value.trim()
+                            })
+                        }
+                    );
+                    const result = await decisionResponse.json();
+                    if (!decisionResponse.ok || !result.ok) {
+                        throw new Error(result.error || "No s'ha pogut registrar la decisió");
+                    }
+                    await loadSupervisionLeaves();
+                    await loadDailyLeaveDecisionDetail(decision.id);
+                    supervisionLeaveDetailMessage.textContent =
+                        "Decisió diària registrada a l’historial.";
+                } catch (error) {
+                    supervisionLeaveDetailMessage.textContent = error.message;
+                    button.disabled = false;
+                }
+            });
+            actions.appendChild(form);
         }
         root.appendChild(actions);
 

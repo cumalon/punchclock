@@ -254,6 +254,11 @@ def init_database():
             ON employee_leave(employee_id) WHERE record_state = 'open'
         """)
         db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_employee_leave_daily_decision
+            ON employee_leave(daily_decision_id)
+            WHERE daily_decision_id IS NOT NULL
+        """)
+        db.execute("""
             CREATE INDEX IF NOT EXISTS idx_daily_leave_decision_pending
             ON daily_leave_decision(status, local_date)
         """)
@@ -1537,7 +1542,9 @@ def _refresh_daily_leave_decision(db, leave_id):
     else:
         status, source = "pending", "system"
 
-    if created:
+    if created and status == "approved" and source == "automatic":
+        action = "automatic_approval"
+    elif created:
         action = "created"
     elif invalidated:
         action = "invalidated"
