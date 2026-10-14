@@ -175,6 +175,86 @@ def test_regularization_updates_daily_total_and_invalidates_decision(client, emp
     assert current["decision_history"][-1]["action"] == "invalidated"
 
 
+def test_zero_duration_supervised_regularization_updates_status_without_total_change(
+    client, employee
+):
+    worker = employee()
+    leave_type_id, intervals = _record_intervals(
+        worker["id"], [10], policy="manual", guaranteed=30, threshold=None
+    )
+    decision_id = intervals[0][1]["daily_decision"]["id"]
+    assert database.get_daily_leave_decision_for_supervision(
+        decision_id
+    )["status"] == "approved"
+
+    actual = "2026-10-11T10:30:00+02:00"
+    with database.get_connection() as db:
+        punch_id = db.execute("""
+            INSERT INTO punch (employee_id, timestamp, type, method)
+            VALUES (?, ?, 'entrada', 'pin')
+        """, (worker["id"], actual)).lastrowid
+        leave_id = db.execute("""
+            INSERT INTO employee_leave
+                (employee_id, leave_type_id, started_at, status, record_state,
+                 requires_supervisor, start_punch_id)
+            VALUES (?, ?, ?, 'pending', 'needs_regularization', 1, ?)
+        """, (worker["id"], leave_type_id, actual, punch_id)).lastrowid
+
+    database.regularize_employee_leave_late_arrival(
+        leave_id, actual, _admin_id(), "Entrada verificada"
+    )
+    decision = database.get_daily_leave_decision_for_supervision(decision_id)
+    assert decision["total_seconds"] == 10 * 60
+    assert decision["status"] == "pending"
+    history_entry = decision["decision_history"][-1]
+    assert history_entry["action"] == "total_changed"
+    assert history_entry["total_seconds"] == 10 * 60
+    assert history_entry["approval_policy"] == "manual"
+    assert history_entry["auto_approve_minutes"] is None
+    assert history_entry["guaranteed_daily_minutes"] == 30
+
+
+def test_existing_daily_group_keeps_original_type_configuration(client, employee):
+    worker = employee()
+    leave_type_id, intervals = _record_intervals(worker["id"], [10, 12, 8, 7])
+    decision_id = intervals[0][1]["daily_decision"]["id"]
+    database.decide_daily_leave(
+        decision_id, "approved", _admin_id(), "Excés revisat"
+    )
+
+    database.update_leave_type(
+        leave_type_id, "Esmorzar", "manual", None, None, True,
+        guaranteed_daily_minutes=5,
+    )
+    _record_intervals(
+        worker["id"], [1], policy="manual", guaranteed=5, threshold=None,
+        leave_type_id=leave_type_id,
+        first_start=datetime(2026, 10, 11, 11, 0, tzinfo=TZ),
+    )
+
+    decision = database.get_daily_leave_decision_for_supervision(decision_id)
+    assert decision["total_seconds"] == 38 * 60
+    assert decision["approval_policy"] == "threshold"
+    assert decision["auto_approve_minutes"] == 30
+    assert decision["guaranteed_daily_minutes"] == 30
+    assert decision["status"] == "pending"
+    assert decision["recognized_seconds"] == 30 * 60
+    invalidation = decision["decision_history"][-1]
+    assert invalidation["action"] == "invalidated"
+    assert invalidation["approval_policy"] == "threshold"
+    assert invalidation["auto_approve_minutes"] == 30
+    assert invalidation["guaranteed_daily_minutes"] == 30
+
+    _, next_day_intervals = _record_intervals(
+        worker["id"], [1], leave_type_id=leave_type_id,
+        first_start=datetime(2026, 10, 12, 10, 0, tzinfo=TZ),
+    )
+    next_day = _daily_decision(next_day_intervals[0][0])
+    assert next_day["approval_policy"] == "manual"
+    assert next_day["auto_approve_minutes"] is None
+    assert next_day["guaranteed_daily_minutes"] == 5
+
+
 def test_manual_zero_guarantee_recognizes_time_only_after_approval(client, employee):
     worker = employee()
     _, intervals = _record_intervals(
@@ -234,7 +314,9 @@ def test_cross_midnight_leave_is_not_silently_added_to_a_daily_group(client, emp
 
 def test_new_daily_groups_do_not_reinterpret_legacy_individual_decisions(client, employee):
     worker = employee()
-    leave_type_id = database.create_leave_type("Esmorzar")
+    leave_type_id = database.create_leave_type(
+        "Esmorzar", guaranteed_daily_minutes=30
+    )
     with database.get_connection() as db:
         legacy_id = db.execute("""
             INSERT INTO employee_leave
@@ -243,6 +325,16 @@ def test_new_daily_groups_do_not_reinterpret_legacy_individual_decisions(client,
             VALUES (?, ?, '2026-10-11T09:00:00+02:00',
                     '2026-10-11T09:20:00+02:00', 'finished', 'approved')
         """, (worker["id"], leave_type_id)).lastrowid
+        admin_id = db.execute(
+            "SELECT id FROM admin_user WHERE username = 'admin'"
+        ).fetchone()["id"]
+        db.execute("""
+            INSERT INTO employee_leave_decision_history
+                (leave_id, admin_user_id, changed_at, previous_status,
+                 new_status, reason)
+            VALUES (?, ?, '2026-10-11T09:21:00+02:00', 'pending',
+                    'approved', 'Legacy approval')
+        """, (legacy_id, admin_id))
     _, intervals = _record_intervals(
         worker["id"], [10], leave_type_id=leave_type_id
     )
@@ -253,9 +345,19 @@ def test_new_daily_groups_do_not_reinterpret_legacy_individual_decisions(client,
             "SELECT status, daily_decision_id FROM employee_leave WHERE id = ?",
             (legacy_id,),
         ).fetchone()
+        legacy_history = db.execute("""
+            SELECT previous_status, new_status, reason
+            FROM employee_leave_decision_history WHERE leave_id = ?
+        """, (legacy_id,)).fetchall()
     assert decision["total_seconds"] == 10 * 60
+    assert decision["guaranteed_seconds"] == 10 * 60
+    assert decision["recognized_seconds"] == 10 * 60
+    assert [leave["id"] for leave in decision["leaves"]] == [intervals[0][0]]
     assert legacy["status"] == "approved"
     assert legacy["daily_decision_id"] is None
+    assert [tuple(row) for row in legacy_history] == [
+        ("pending", "approved", "Legacy approval")
+    ]
     assert len(database.list_employee_leaves_for_supervision("all")) == 1
 
 

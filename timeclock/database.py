@@ -1501,8 +1501,14 @@ def _refresh_daily_leave_decision(db, leave_id):
             leave["guaranteed_daily_minutes"],
             datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds"),
         )).lastrowid
+        approval_policy = leave["approval_policy"]
+        auto_approve_minutes = leave["auto_approve_minutes"]
+        guaranteed_daily_minutes = leave["guaranteed_daily_minutes"]
     else:
         decision_id = decision["id"]
+        approval_policy = decision["approval_policy"]
+        auto_approve_minutes = decision["auto_approve_minutes"]
+        guaranteed_daily_minutes = decision["guaranteed_daily_minutes"]
     db.execute(
         "UPDATE employee_leave SET daily_decision_id = ? WHERE id = ?",
         (decision_id, leave_id),
@@ -1516,25 +1522,18 @@ def _refresh_daily_leave_decision(db, leave_id):
     total_seconds = sum(_leave_duration_seconds(member) for member in members)
     requires_supervisor = any(member["requires_supervisor"] for member in members)
     total_changed = created or total_seconds != decision["total_seconds"]
-    policy_changed = (
-        not created and (
-            decision["approval_policy"] != leave["approval_policy"]
-            or decision["auto_approve_minutes"] != leave["auto_approve_minutes"]
-            or decision["guaranteed_daily_minutes"] != leave["guaranteed_daily_minutes"]
-        )
-    )
     invalidated = (
-        not created and (total_changed or policy_changed)
+        not created and total_changed
         and decision["status"] != "pending"
         and decision["decision_source"] == "supervisor"
     )
 
-    no_excess = total_seconds <= leave["guaranteed_daily_minutes"] * 60
+    no_excess = total_seconds <= guaranteed_daily_minutes * 60
     if invalidated or requires_supervisor:
         status, source = "pending", "system"
-    elif leave["approval_policy"] == "automatic" or (
-        leave["approval_policy"] == "threshold"
-        and total_seconds <= leave["auto_approve_minutes"] * 60
+    elif approval_policy == "automatic" or (
+        approval_policy == "threshold"
+        and total_seconds <= auto_approve_minutes * 60
     ):
         status, source = "approved", "automatic"
     elif no_excess:
@@ -1556,18 +1555,15 @@ def _refresh_daily_leave_decision(db, leave_id):
     else:
         action = "total_changed"
 
-    if total_changed or policy_changed:
+    if total_changed:
         changed_at = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
         db.execute("""
             UPDATE daily_leave_decision
             SET status = ?, decision_source = ?, total_seconds = ?,
-                approval_policy = ?, auto_approve_minutes = ?,
-                guaranteed_daily_minutes = ?, updated_at = ?
+                updated_at = ?
             WHERE id = ?
         """, (
-            status, source, total_seconds, leave["approval_policy"],
-            leave["auto_approve_minutes"], leave["guaranteed_daily_minutes"],
-            changed_at, decision_id,
+            status, source, total_seconds, changed_at, decision_id,
         ))
         db.execute("""
             INSERT INTO daily_leave_decision_history
@@ -1578,8 +1574,7 @@ def _refresh_daily_leave_decision(db, leave_id):
         """, (
             decision_id, changed_at, action,
             None if created else decision["status"], status, total_seconds,
-            leave["approval_policy"], leave["auto_approve_minutes"],
-            leave["guaranteed_daily_minutes"],
+            approval_policy, auto_approve_minutes, guaranteed_daily_minutes,
         ))
         db.execute(
             "UPDATE employee_leave SET status = ? WHERE daily_decision_id = ?",
@@ -1595,13 +1590,14 @@ def _refresh_daily_leave_decision(db, leave_id):
         db.execute("""
             INSERT INTO daily_leave_decision_history
                 (decision_id, changed_at, action, previous_status,
-                 new_status, total_seconds)
+                 new_status, total_seconds, approval_policy,
+                 auto_approve_minutes, guaranteed_daily_minutes)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             decision_id, changed_at,
             "automatic_approval" if source == "automatic" else "total_changed",
-            decision["status"], status, total_seconds, leave["approval_policy"],
-            leave["auto_approve_minutes"], leave["guaranteed_daily_minutes"],
+            decision["status"], status, total_seconds, approval_policy,
+            auto_approve_minutes, guaranteed_daily_minutes,
         ))
         db.execute(
             "UPDATE employee_leave SET status = ? WHERE daily_decision_id = ?",
@@ -1609,7 +1605,7 @@ def _refresh_daily_leave_decision(db, leave_id):
         )
 
     guaranteed_seconds = min(
-        total_seconds, leave["guaranteed_daily_minutes"] * 60
+        total_seconds, guaranteed_daily_minutes * 60
     )
     recognized_seconds = (
         total_seconds if status == "approved" else guaranteed_seconds

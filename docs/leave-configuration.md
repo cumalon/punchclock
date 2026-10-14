@@ -42,6 +42,12 @@ history and the group returns to pending review. Automatic approvals, total
 changes, invalidations, and supervisor decisions are also recorded with the
 total and configuration snapshot used at the time.
 
+Each daily group keeps the approval policy, automatic threshold, and guaranteed
+minutes that were configured when its first interval was added. Later edits to
+the leave type apply only to daily groups created afterward; they do not alter
+an existing group's snapshot or recognition rules. Additional intervals and
+regularizations for an existing group continue to use its original snapshot.
+
 ### Migration and historical compatibility
 
 The idempotent migration adds nullable `employee_leave.daily_decision_id` and
@@ -52,6 +58,14 @@ into a daily total or reinterpreted under the new guarantee and threshold
 rules. New completed same-day records are linked to the daily group; their
 individual statuses mirror the group status for compatibility, while the
 daily history is authoritative for grouped decisions.
+
+If historical and new records of the same type occur on the same local date,
+only records explicitly linked to the new daily group contribute to its total
+and guaranteed-minute allowance. Historical records remain separately
+individually approved/rejected and are never assigned a share of the new daily
+guarantee. Future hour reports must keep the two sets distinct: they must not
+apply the group guarantee to legacy records or allow a legacy status to alter
+the new group's decision. No hourly-report engine is added in Sprint B.
 
 Intervals that cross a local calendar date are not assigned to a daily group.
 They remain pending and require supervisor attention rather than being
@@ -86,7 +100,9 @@ Targeted automated tests:
 python -m pytest tests/test_daily_leave_decisions.py tests/test_leave_*.py -q
 ```
 
-Sprint B result: **133 passed**.
+Sprint B review-correction result:
+`python -m pytest tests/test_daily_leave_decisions.py tests/test_leave_*.py -q`
+— **135 passed**.
 
 Whether a justification is required or optional, and its format and behavior,
 remain pending functional definition. The current implementation has no
