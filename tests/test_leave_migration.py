@@ -38,6 +38,8 @@ def test_leave_migration_preserves_legacy_records(client, employee):
         assert row["record_state"] == "finished"
         assert row["requires_supervisor"] == 0
         assert row["ended_at"] == "2026-10-10T10:15:00+02:00"
+        assert row["daily_decision_id"] is None
+        assert db.execute("SELECT COUNT(*) FROM daily_leave_decision").fetchone()[0] == 0
 
 
 def test_leave_type_migration_preserves_configuration_and_defaults_guarantee(client):

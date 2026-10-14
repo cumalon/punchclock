@@ -441,7 +441,8 @@ SUPERVISOR_ENDPOINTS = {
     "admin_classify_leave",
     "admin_regularize_leave_return",
     "admin_regularize_leave_late_arrival", "admin_regularize_leave_early_departure",
-    "admin_decide_leave",
+    "admin_decide_leave", "admin_daily_leave_decisions",
+    "admin_daily_leave_decision_detail", "admin_decide_daily_leave",
 }
 
 
@@ -640,6 +641,37 @@ def admin_decide_leave(leave_id):
     try:
         result = database.decide_employee_leave(
             leave_id, data.get("status"),
+            session["admin_user_id"], data.get("reason"),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify(result)
+
+
+@app.get("/api/admin/daily-leave-decisions")
+def admin_daily_leave_decisions():
+    filter_by = request.args.get("filter", "all")
+    try:
+        decisions = database.list_daily_leave_decisions_for_supervision(filter_by)
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True, "daily_decisions": decisions})
+
+
+@app.get("/api/admin/daily-leave-decisions/<int:decision_id>")
+def admin_daily_leave_decision_detail(decision_id):
+    decision = database.get_daily_leave_decision_for_supervision(decision_id)
+    if decision is None:
+        return jsonify({"ok": False, "error": "Decisió diària no trobada"}), 404
+    return jsonify({"ok": True, "daily_decision": decision})
+
+
+@app.post("/api/admin/daily-leave-decisions/<int:decision_id>/decision")
+def admin_decide_daily_leave(decision_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        result = database.decide_daily_leave(
+            decision_id, data.get("status"),
             session["admin_user_id"], data.get("reason"),
         )
     except ValueError as error:
