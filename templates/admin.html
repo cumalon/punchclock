@@ -6,7 +6,7 @@
     <title>TimeClockPi - Administració</title>
     <meta name="csrf-token" content="{{ csrf_token }}">
     <meta name="user-role" content="{{ role }}">
-    <link rel="stylesheet" href="/static/admin.css?v=6.27">
+    <link rel="stylesheet" href="/static/admin.css?v=6.28">
 </head>
 <body>
     <div class="admin-layout">
@@ -155,6 +155,7 @@
                 <header class="section-header"><h1>Tipus de permisos</h1><p>Configura els permisos disponibles per als treballadors.</p></header>
                 <section class="panel">
                     <h2>Nou tipus de permís</h2>
+                    <p>La suma diària per treballador i tipus, i l’aplicació dels minuts garantits al còmput, encara no estan implementades (Sprint B). Ara el llindar d’aprovació s’aplica a cada permís individual.</p>
                     <form id="new-leave-type">
                         <label>Nom <input id="leave-type-name" maxlength="100" required></label>
                         <label>Política d'aprovació
@@ -165,7 +166,7 @@
                             </select>
                         </label>
                         <label>Durada de referència (minuts, opcional) <input id="leave-type-max" type="number" min="1" step="1"></label>
-                        <label>Llindar d’aprovació automàtica (minuts acumulats al dia) <input id="leave-type-threshold" type="number" min="1" step="1"></label>
+                        <label>Llindar d’aprovació automàtica (minuts) <input id="leave-type-threshold" type="number" min="1" step="1"></label>
                         <label>Minuts garantits diaris <input id="leave-type-guaranteed" type="number" min="0" step="1" value="0" required></label>
                         <button type="submit">Crear tipus</button>
                     </form>
@@ -296,6 +297,6 @@
             </div>
         </main>
     </div>
-    <script src="/static/admin.js?v=7.11"></script>
+    <script src="/static/admin.js?v=7.12"></script>
 </body>
 </html>

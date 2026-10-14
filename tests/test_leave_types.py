@@ -1,4 +1,5 @@
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -115,7 +116,7 @@ def test_flexible_approval_threshold_can_exceed_reference_duration(admin_client)
     assert response.status_code == 201
 
 
-def test_list_active_leave_types_excludes_inactive_and_orders_by_name(client):
+def test_list_active_leave_types_excludes_inactive_and_preserves_configured_order(client):
     database.create_leave_type("Zebra", approval_policy="manual")
     database.create_leave_type(
         "Esmorzar", approval_policy="threshold", guaranteed_daily_minutes=30,
@@ -125,17 +126,31 @@ def test_list_active_leave_types_excludes_inactive_and_orders_by_name(client):
 
     rows = database.list_active_leave_types()
 
-    assert [row["name"] for row in rows] == ["Esmorzar", "Zebra"]
-    assert rows[0]["approval_policy"] == "threshold"
-    assert rows[0]["max_minutes"] == 20
-    assert rows[0]["auto_approve_minutes"] == 30
-    assert rows[0]["guaranteed_daily_minutes"] == 30
+    assert [row["name"] for row in rows] == ["Zebra", "Esmorzar"]
+    assert rows[1]["approval_policy"] == "threshold"
+    assert rows[1]["max_minutes"] == 20
+    assert rows[1]["auto_approve_minutes"] == 30
+    assert rows[1]["guaranteed_daily_minutes"] == 30
     assert all("active" not in row and "used" not in row for row in rows)
 
 
 def test_admin_form_exposes_guaranteed_minutes_with_zero_allowed(admin_client):
     page = admin_client.get("/admin").get_data(as_text=True)
     assert 'id="leave-type-guaranteed" type="number" min="0"' in page
+    assert 'admin.css?v=6.28' in page
+    assert 'admin.js?v=7.12' in page
+    assert "La suma diària per treballador i tipus" in page
+    assert "Ara el llindar d’aprovació s’aplica a cada permís individual." in page
+
+
+def test_leave_type_action_controls_use_last_column_at_desktop_breakpoints():
+    css = (Path(__file__).resolve().parents[1] / "static" / "admin.css").read_text()
+    assert ".leave-type-actions {\n    grid-column: 8;" in css
+    assert "@media (max-width: 1250px)" in css
+    assert ".leave-type-actions { grid-column: 8; gap: 4px; }" in css
+    assert "@media (max-width: 1050px)" in css
+    assert "@media (max-width: 780px)" in css
+    assert "@media (max-width: 460px)" in css
 
 
 def test_list_active_leave_types_empty(client):

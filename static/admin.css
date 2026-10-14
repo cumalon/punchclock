@@ -1096,7 +1096,7 @@ input[type="checkbox"] {
 }
 .leave-type-active input { width: 17px; min-height: 17px; height: 17px; margin: 0; }
 .leave-type-actions {
-    grid-column: 7;
+    grid-column: 8;
     display: flex;
     justify-content: flex-end;
     align-items: center;
@@ -1112,7 +1112,7 @@ input[type="checkbox"] {
         gap: 6px;
         padding: 10px;
     }
-    .leave-type-actions { grid-column: 7; gap: 4px; }
+    .leave-type-actions { grid-column: 8; gap: 4px; }
     .leave-type-actions button { padding: 7px 8px; font-size: .84rem; }
 }
 @media (max-width: 1050px) {
