@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 import zipfile
+from openpyxl import Workbook
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -45,6 +46,7 @@ from timeclock.database import (
 from pathlib import Path
 
 from timeclock import branding, database
+from timeclock.hours_report import build_hours_report
 import backup as backup_module
 from backup import create_backup, restore_backup, verify_backup
 
@@ -434,6 +436,7 @@ def admin_logout():
 
 SUPERVISOR_ENDPOINTS = {
     "admin_punches", "admin_export_csv", "admin_timeline",
+    "admin_hours_report", "admin_hours_report_xlsx",
     "admin_correct_punch", "admin_review_punch_incident",
     "admin_punch_incident_reviews", "admin_punch_corrections",
     "admin_employees", "admin_change_password", "admin_logout",
@@ -811,6 +814,101 @@ def admin_export_csv():
         "\ufeff" + output.getvalue(),
         mimetype="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+def _requested_hours_report():
+    date_from = request.args.get("date_from", "")
+    date_to = request.args.get("date_to", "")
+    employee_value = request.args.get("employee_id", "")
+    if employee_value and not employee_value.isdecimal():
+        raise ValueError("Treballador no vàlid")
+    employee_id = int(employee_value) if employee_value else None
+    return build_hours_report(date_from, date_to, employee_id)
+
+
+@app.get("/api/admin/hours-report")
+def admin_hours_report():
+    try:
+        return jsonify({"ok": True, "report": _requested_hours_report()})
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+
+
+@app.get("/api/admin/hours-report.xlsx")
+def admin_hours_report_xlsx():
+    try:
+        report = _requested_hours_report()
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+
+    workbook = Workbook()
+    summary = workbook.active
+    summary.title = "Resum"
+    summary.append([
+        "Treballador", "Temps treballat (h)", "Permís reconegut (h)",
+        "Total computable (h)", "Incidències",
+    ])
+    for employee in report["employees"]:
+        summary.append([
+            employee["employee_name"],
+            round(employee["worked_seconds"] / 3600, 4),
+            round(employee["leave_seconds"] / 3600, 4),
+            round(employee["total_seconds"] / 3600, 4),
+            employee["incident_count"],
+        ])
+
+    daily = workbook.create_sheet("Detall diari")
+    daily.append([
+        "Data", "Treballador", "Temps treballat (h)",
+        "Permís reconegut (h)", "Total computable (h)", "Detall de permisos",
+    ])
+    for day in report["days"]:
+        leave_detail = "; ".join(
+            f"{item['leave_type']}: {item['recognized_seconds'] / 60:g} min "
+            f"({item['status']}, {item['record_count']} registres)"
+            for item in day["leave_details"]
+        )
+        daily.append([
+            day["date"], day["employee_name"],
+            round(day["worked_seconds"] / 3600, 4),
+            round(day["leave_seconds"] / 3600, 4),
+            round(day["total_seconds"] / 3600, 4),
+            leave_detail,
+        ])
+
+    incidents = workbook.create_sheet("Incidències")
+    incidents.append([
+        "Data", "Treballador", "Categoria", "Detall",
+    ])
+    for issue in report["incidents"]:
+        incidents.append([
+            issue["date"], issue["employee_name"],
+            issue["category"], issue["description"],
+        ])
+
+    for worksheet in workbook.worksheets:
+        worksheet.freeze_panes = "A2"
+        worksheet.auto_filter.ref = worksheet.dimensions
+        for column in worksheet.columns:
+            width = min(
+                60,
+                max(12, max(len(str(cell.value or "")) for cell in column) + 2),
+            )
+            worksheet.column_dimensions[column[0].column_letter].width = width
+        for row in worksheet.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value.startswith(("=", "+", "-", "@")):
+                    cell.value = "'" + cell.value
+
+    output = io.BytesIO()
+    workbook.save(output)
+    return Response(
+        output.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="informe-hores.xlsx"'
+        },
     )
 
 

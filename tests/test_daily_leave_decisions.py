@@ -493,7 +493,7 @@ def test_daily_supervision_ui_exposes_group_review_and_current_cache_version(
     script = (
         Path(__file__).resolve().parents[1] / "static" / "admin.js"
     ).read_text()
-    assert "admin.js?v=7.13" in page
+    assert "admin.js?v=7.14" in page
     assert "/api/admin/daily-leave-decisions" in script
     assert "Aprovar tot l’excés" in script
     assert "Rebutjar tot l’excés" in script

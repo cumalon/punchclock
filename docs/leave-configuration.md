@@ -104,7 +104,53 @@ Sprint B review-correction result:
 `python -m pytest tests/test_daily_leave_decisions.py tests/test_leave_*.py -q`
 — **135 passed**.
 
+## Sprint C: hours reports
+
+The `/api/admin/hours-report` JSON view and `/api/admin/hours-report.xlsx`
+export use the same report engine. Both accept required `date_from` and
+`date_to` values in `YYYY-MM-DD` format (inclusive) and an optional
+`employee_id`. The report UI is available to administrators and supervisors,
+consistent with their existing access to punch records. The existing CSV
+exports remain unchanged.
+
+The XLSX workbook contains three sheets: `Resum` (employee totals),
+`Detall diari` (daily work, recognized leave, total, and leave status/details),
+and `Incidències` (incomplete or excluded records and punch incidents). Hours
+are represented as decimal hours in the workbook; the web view displays
+`hours:minutes:seconds`.
+
+Punches are paired as an `entrada` followed by a `sortida` on the same
+`Europe/Madrid` calendar date. Unmatched punches, non-positive pairs, and
+pairs containing an unresolved punch incident do not contribute work time.
+Reviewed incident punches can contribute when they form a valid pair, and
+reviewed incidents remain visible in the report. The report never pairs
+overnight shifts; the unmatched endpoints appear as incidents instead.
+
+For new daily groups, an approved group may recognize its full eligible
+interval duration; a pending or rejected group recognizes at most its
+creation-time guaranteed minutes. Legacy individual leave records contribute
+only when individually approved; pending or rejected historical records are
+not retroactively recognized. Incomplete, malformed, and cross-midnight leave
+records do not contribute time and are listed as incidents. Overlapping leave
+intervals are deduplicated, with pending/rejected guaranteed time allocated
+chronologically within the group; overlap between leave and work time is
+assigned to leave so no interval is counted twice. These reporting rules do
+not modify punch, leave, or decision-history records.
+
+Targeted Sprint C tests:
+
+```sh
+python -m pytest tests/test_hours_report.py -q
+```
+
+The XLSX dependency is pinned to `openpyxl==3.1.5`.
+
+The functional design left the precise XLSX columns and treatment of
+incomplete/incidence cases open. Sprint C uses the conservative rules above:
+uncertain work time is excluded rather than estimated, while valid guaranteed
+leave remains computable under the daily decision rules.
+
 Whether a justification is required or optional, and its format and behavior,
 remain pending functional definition. The current implementation has no
 justification configuration or field; this item is explicitly excluded from
-Sprints A and B.
+Sprints A, B, and C.

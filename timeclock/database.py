@@ -25,6 +25,13 @@ def local_timestamp_date(value):
     return parse_local_timestamp(value).astimezone(LOCAL_TIMEZONE).date().isoformat()
 
 
+def safe_local_timestamp_date(value):
+    try:
+        return local_timestamp_date(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def utc_timestamp_sort_key(value):
     return parse_local_timestamp(value).astimezone(timezone.utc).isoformat(
         timespec="microseconds"
@@ -39,6 +46,7 @@ def get_connection():
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.create_function("utc_timestamp_sort_key", 1, utc_timestamp_sort_key)
+    connection.create_function("local_timestamp_date", 1, safe_local_timestamp_date)
 
     try:
         with connection:

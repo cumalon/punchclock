@@ -107,6 +107,7 @@ if (!isSupervisor) {
 
 const employeesSection = document.getElementById("employees-section");
 const punchesSection = document.getElementById("punches-section");
+const hoursReportSection = document.getElementById("hours-report-section");
 const settingsSection = document.getElementById("settings-section");
 const backupsSection = document.getElementById("backups-section");
 const punchEmployee = document.getElementById("punch-employee");
@@ -133,9 +134,10 @@ function setActionButton(button, icon, label) {
 }
 
 function showSection(section) {
-    if (isSupervisor && !["punches", "leaves"].includes(section)) section = "punches";
+    if (isSupervisor && !["punches", "leaves", "hours-report"].includes(section)) section = "punches";
     employeesSection.classList.toggle("hidden", section !== "employees");
     punchesSection.classList.toggle("hidden", section !== "punches");
+    hoursReportSection.classList.toggle("hidden", section !== "hours-report");
     document.getElementById("leaves-section").classList.toggle("hidden", section !== "leaves");
     document.getElementById("leave-supervision-detail").classList.add("hidden");
     settingsSection.classList.toggle("hidden", section !== "settings");
@@ -152,6 +154,7 @@ function showSection(section) {
     document.querySelector(".page-header").classList.toggle("hidden", section !== "employees");
 
     if (section === "punches") loadPunches();
+    if (section === "hours-report") loadHoursReport();
     if (section === "leaves") loadSupervisionLeaves();
     if (section === "settings") loadSettings();
     if (section === "users") loadWebUsers();
@@ -263,6 +266,7 @@ async function loadPunches() {
 const sectionByHash = {
     "#fitxatges": "punches",
     "#permisos-personal": "leaves",
+    "#comput-hores": "hours-report",
     "#treballadors": "employees",
     "#usuaris": "users",
     "#permisos": "leave-types",
@@ -287,6 +291,113 @@ for (const filterId of ["punch-employee", "date-from", "date-to"]) {
 }
 
 loadPunchFilters();
+
+
+function reportDuration(seconds) {
+    const total = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const remainingSeconds = total % 60;
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+function hoursReportParams() {
+    const params = new URLSearchParams();
+    const employeeId = document.getElementById("hours-report-employee").value;
+    const dateFrom = document.getElementById("hours-report-from").value;
+    const dateTo = document.getElementById("hours-report-to").value;
+    if (employeeId) params.set("employee_id", employeeId);
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    return params;
+}
+
+async function loadHoursReportFilters() {
+    const response = await fetch("/api/admin/employees");
+    const data = await response.json();
+    const select = document.getElementById("hours-report-employee");
+    for (const employee of data.employees) {
+        const option = document.createElement("option");
+        option.value = employee.id;
+        option.textContent = employee.name;
+        select.appendChild(option);
+    }
+    const now = new Date();
+    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    document.getElementById("hours-report-from").value =
+        `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    document.getElementById("hours-report-to").value = localDate;
+    if (location.hash === "#comput-hores") loadHoursReport();
+}
+
+function appendReportCell(row, text) {
+    const cell = document.createElement("td");
+    cell.textContent = text;
+    row.appendChild(cell);
+}
+
+async function loadHoursReport() {
+    const message = document.getElementById("hours-report-message");
+    const params = hoursReportParams();
+    const summaryBody = document.getElementById("hours-report-summary");
+    const daysBody = document.getElementById("hours-report-days");
+    const incidentsBody = document.getElementById("hours-report-incidents");
+    if (!params.get("date_from") || !params.get("date_to")) {
+        message.textContent = "Selecciona les dues dates per generar el còmput.";
+        return;
+    }
+    message.textContent = "Calculant...";
+    try {
+        const response = await fetch("/api/admin/hours-report?" + params.toString());
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "No s'ha pogut generar l'informe");
+        summaryBody.replaceChildren();
+        daysBody.replaceChildren();
+        incidentsBody.replaceChildren();
+        for (const employee of data.report.employees) {
+            const row = document.createElement("tr");
+            appendReportCell(row, employee.employee_name);
+            appendReportCell(row, reportDuration(employee.worked_seconds));
+            appendReportCell(row, reportDuration(employee.leave_seconds));
+            appendReportCell(row, reportDuration(employee.total_seconds));
+            appendReportCell(row, String(employee.incident_count));
+            summaryBody.appendChild(row);
+        }
+        for (const day of data.report.days) {
+            const row = document.createElement("tr");
+            appendReportCell(row, day.date);
+            appendReportCell(row, day.employee_name);
+            appendReportCell(row, reportDuration(day.worked_seconds));
+            appendReportCell(row, reportDuration(day.leave_seconds));
+            appendReportCell(row, reportDuration(day.total_seconds));
+            appendReportCell(row, day.leave_details.map(item =>
+                `${item.leave_type}: ${reportDuration(item.recognized_seconds)} (${item.status}, ${item.record_count})`
+            ).join("; "));
+            daysBody.appendChild(row);
+        }
+        for (const issue of data.report.incidents) {
+            const row = document.createElement("tr");
+            appendReportCell(row, issue.date || "—");
+            appendReportCell(row, issue.employee_name);
+            appendReportCell(row, issue.category);
+            appendReportCell(row, issue.description);
+            incidentsBody.appendChild(row);
+        }
+        message.textContent = `Informe generat: ${data.report.days.length} dies amb dades o incidències.`;
+    } catch (error) {
+        message.textContent = error.message;
+    }
+}
+
+document.getElementById("hours-report-run").addEventListener("click", loadHoursReport);
+for (const id of ["hours-report-employee", "hours-report-from", "hours-report-to"]) {
+    document.getElementById(id).addEventListener("change", loadHoursReport);
+}
+document.getElementById("hours-report-xlsx").addEventListener("click", () => {
+    const params = hoursReportParams();
+    window.location.href = "/api/admin/hours-report.xlsx?" + params.toString();
+});
+loadHoursReportFilters();
 
 
 document.getElementById("export-csv").addEventListener("click", () => {

@@ -137,10 +137,10 @@ def test_list_active_leave_types_excludes_inactive_and_preserves_configured_orde
 def test_admin_form_exposes_guaranteed_minutes_with_zero_allowed(admin_client):
     page = admin_client.get("/admin").get_data(as_text=True)
     assert 'id="leave-type-guaranteed" type="number" min="0"' in page
-    assert 'admin.css?v=6.28' in page
-    assert 'admin.js?v=7.13' in page
-    assert "La suma diària per treballador i tipus" in page
-    assert "Ara el llindar d’aprovació s’aplica a cada permís individual." in page
+    assert 'admin.css?v=6.29' in page
+    assert 'admin.js?v=7.14' in page
+    assert "Els permisos s’acumulen per treballador, tipus i dia." in page
+    assert "El llindar d’aprovació automàtica s’aplica al total acumulat del dia" in page
 
 
 def test_leave_type_action_controls_use_last_column_at_desktop_breakpoints():
