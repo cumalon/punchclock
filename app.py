@@ -831,16 +831,16 @@ def _requested_hours_report():
 def admin_hours_report():
     try:
         return jsonify({"ok": True, "report": _requested_hours_report()})
-    except ValueError as error:
-        return jsonify({"ok": False, "error": str(error)}), 400
+    except ValueError:
+        return jsonify({"ok": False, "error": "Filtres de còmput no vàlids"}), 400
 
 
 @app.get("/api/admin/hours-report.xlsx")
 def admin_hours_report_xlsx():
     try:
         report = _requested_hours_report()
-    except ValueError as error:
-        return jsonify({"ok": False, "error": str(error)}), 400
+    except ValueError:
+        return jsonify({"ok": False, "error": "Filtres de còmput no vàlids"}), 400
 
     workbook = Workbook()
     summary = workbook.active
