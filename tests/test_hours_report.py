@@ -1,6 +1,7 @@
 from io import BytesIO
 
 from openpyxl import load_workbook
+import pytest
 
 from app import app
 from timeclock import database
@@ -94,6 +95,67 @@ def test_report_deduplicates_approved_legacy_and_daily_leave_overlap(client, emp
     assert day["total_seconds"] == 35 * 60
     assert any(issue["category"] == "Intervals de permís solapats"
                for issue in report["incidents"])
+
+
+@pytest.mark.parametrize(
+    ("leave_kind", "status", "worked_minutes", "leave_minutes"),
+    [
+        ("daily", "pending", 7 * 60, 30),
+        ("daily", "rejected", 7 * 60, 30),
+        ("daily", "approved", 7 * 60, 60),
+        ("legacy", "pending", 7 * 60, 0),
+        ("legacy", "rejected", 7 * 60, 0),
+    ],
+)
+def test_report_subtracts_leave_absence_independently_of_recognition(
+    admin_client, client, employee, leave_kind, status,
+    worked_minutes, leave_minutes,
+):
+    worker = employee()
+    leave_type_id = database.create_leave_type(
+        "Esmorzar", guaranteed_daily_minutes=30
+    )
+    _add_punch(worker["id"], "2026-03-01T09:00:00+01:00", "entrada")
+    _add_punch(worker["id"], "2026-03-01T17:00:00+01:00", "sortida")
+    if leave_kind == "daily":
+        _add_daily_leave(
+            worker["id"], leave_type_id, status=status,
+            guaranteed_minutes=30,
+        )
+    else:
+        with database.get_connection() as db:
+            db.execute("""
+                INSERT INTO employee_leave
+                    (employee_id, leave_type_id, started_at, ended_at,
+                     record_state, status)
+                VALUES (?, ?, '2026-03-01T12:00:00+01:00',
+                        '2026-03-01T13:00:00+01:00', 'finished', ?)
+            """, (worker["id"], leave_type_id, status))
+
+    params = (
+        f"employee_id={worker['id']}&date_from=2026-03-01"
+        "&date_to=2026-03-01"
+    )
+    response = admin_client.get("/api/admin/hours-report?" + params)
+    assert response.status_code == 200
+    summary = response.get_json()["report"]["employees"][0]
+    assert summary["worked_seconds"] == worked_minutes * 60
+    assert summary["leave_seconds"] == leave_minutes * 60
+    assert summary["total_seconds"] == (worked_minutes + leave_minutes) * 60
+
+    xlsx = admin_client.get("/api/admin/hours-report.xlsx?" + params)
+    assert xlsx.status_code == 200
+    workbook = load_workbook(BytesIO(xlsx.data), read_only=True)
+    row = next(workbook["Resum"].iter_rows(min_row=2, values_only=True))
+    assert row[1] == worked_minutes / 60
+    assert row[2] == leave_minutes / 60
+    assert row[3] == (worked_minutes + leave_minutes) / 60
+    daily_row = next(
+        workbook["Detall diari"].iter_rows(min_row=2, values_only=True)
+    )
+    assert daily_row[2] == worked_minutes / 60
+    assert daily_row[3] == leave_minutes / 60
+    assert daily_row[4] == (worked_minutes + leave_minutes) / 60
 
 
 def test_approved_daily_decision_recognizes_full_minutes(employee, client):

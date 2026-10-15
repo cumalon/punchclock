@@ -252,6 +252,7 @@ def build_hours_report(date_from, date_to, employee_id=None):
             ))
 
     permission_groups = defaultdict(list)
+    absence_intervals = defaultdict(list)
     for leave in leaves:
         worker_id = leave["employee_id"]
         employee_name = leave["employee_name"]
@@ -311,6 +312,7 @@ def build_hours_report(date_from, date_to, employee_id=None):
             get_day(worker_id, start_date)
             continue
         get_day(worker_id, start_date)
+        absence_intervals[(worker_id, start_date)].append((start, end))
         if leave["daily_decision_id"] is not None:
             if leave["daily_status"] is None:
                 issues.append(_issue(
@@ -428,26 +430,29 @@ def build_hours_report(date_from, date_to, employee_id=None):
             "recognized_seconds": _duration(unique_eligible),
         })
 
-    for key in set(work_intervals) | set(recognized_permission_intervals):
+    for key in (
+        set(work_intervals) | set(recognized_permission_intervals)
+        | set(absence_intervals)
+    ):
         worker_id, local_date = key
         work = _union_intervals(work_intervals[key])
         permission = _union_intervals(recognized_permission_intervals[key])
-        occupied_permissions = permission
+        physical_absence = _union_intervals(absence_intervals[key])
         overlap_seconds = sum(
             _duration(_subtract_intervals(interval, []))
-            - _duration(_subtract_intervals(interval, occupied_permissions))
+            - _duration(_subtract_intervals(interval, physical_absence))
             for interval in work
         )
         if overlap_seconds:
             issues.append(_issue(
                 worker_id, employee_names.get(worker_id, ""), local_date,
                 "Intervals solapats",
-                "El temps coincident entre fitxatge i permís s'assigna al permís "
-                "i no es duplica.",
+                "El temps del permís es tracta com a absència, encara que no sigui "
+                "reconegut com a temps computable.",
             ))
         effective_work = [
             part for interval in work
-            for part in _subtract_intervals(interval, occupied_permissions)
+            for part in _subtract_intervals(interval, physical_absence)
         ]
         day = get_day(worker_id, local_date)
         day["worked_seconds"] = _duration(effective_work)

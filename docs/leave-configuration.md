@@ -133,8 +133,12 @@ only when individually approved; pending or rejected historical records are
 not retroactively recognized. Incomplete, malformed, and cross-midnight leave
 records do not contribute time and are listed as incidents. Overlapping leave
 intervals are deduplicated, with pending/rejected guaranteed time allocated
-chronologically within the group; overlap between leave and work time is
-assigned to leave so no interval is counted twice. These reporting rules do
+chronologically within the group. Every valid, same-day leave interval is
+treated as physical absence and removed from worked time, even when that leave
+is pending/rejected and its excess is not recognized. Only the guaranteed
+portion (or the full approved duration) is added as recognized leave, so an
+unrecognized absence cannot be misclassified as work. Overlaps between leave
+types or between leave and work are counted only once. These reporting rules do
 not modify punch, leave, or decision-history records.
 
 Targeted Sprint C tests:
