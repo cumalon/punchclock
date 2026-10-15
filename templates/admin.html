@@ -155,7 +155,7 @@
                 <header class="section-header"><h1>Tipus de permisos</h1><p>Configura els permisos disponibles per als treballadors.</p></header>
                 <section class="panel">
                     <h2>Nou tipus de permís</h2>
-                    <p>La suma diària per treballador i tipus, i l’aplicació dels minuts garantits al còmput, encara no estan implementades (Sprint B). Ara el llindar d’aprovació s’aplica a cada permís individual.</p>
+                    <p>Els permisos s’acumulen per treballador, tipus i dia. Es reconeixen fins als minuts garantits diaris encara que l’excés estigui pendent o rebutjat. El llindar d’aprovació automàtica s’aplica al total acumulat del dia; si se supera, l’excés requereix una única decisió de supervisió.</p>
                     <form id="new-leave-type">
                         <label>Nom <input id="leave-type-name" maxlength="100" required></label>
                         <label>Política d'aprovació
