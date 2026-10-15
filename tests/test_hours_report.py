@@ -66,6 +66,8 @@ def test_report_includes_both_boundaries_and_separates_work_and_leave(client, em
     assert len(report["days"]) == 2
     assert any(issue["category"] == "Treball pendent de revisió"
                for issue in report["incidents"])
+    assert any(issue["category"] == "Excés pendent"
+               for issue in report["incidents"])
     assert any(issue["category"] == "Fitxatge incomplet"
                for issue in report["incidents"])
     assert all(day["date"] >= "2026-03-01" for day in report["days"])
@@ -135,6 +137,25 @@ def test_report_uses_europe_madrid_local_date_for_offsets(client, employee):
     report = build_hours_report("2026-03-02", "2026-03-02", worker["id"])
     assert report["days"][0]["date"] == "2026-03-02"
     assert report["employees"][0]["worked_seconds"] == 60 * 60
+
+
+def test_report_selects_late_arrival_by_expected_local_date(client, employee):
+    worker = employee()
+    leave_type_id = database.create_leave_type("Retard", guaranteed_daily_minutes=0)
+    with database.get_connection() as db:
+        db.execute("""
+            INSERT INTO employee_leave
+                (employee_id, leave_type_id, started_at, ended_at, status,
+                 record_state, regularization_kind, expected_started_at)
+            VALUES (?, ?, '2026-03-02T00:30:00+01:00',
+                    '2026-03-02T00:30:00+01:00', 'approved', 'finished',
+                    'late_arrival', '2026-03-01T23:30:00+01:00')
+        """, (worker["id"], leave_type_id))
+
+    report = build_hours_report("2026-03-01", "2026-03-01", worker["id"])
+    assert report["employees"][0]["leave_seconds"] == 0
+    assert any(issue["category"] == "Permís nocturn"
+               for issue in report["incidents"])
 
 
 def test_hours_report_endpoints_validate_auth_dates_and_export_xlsx(

@@ -122,13 +122,22 @@ def build_hours_report(date_from, date_to, employee_id=None):
             ORDER BY p.employee_id, utc_timestamp_sort_key(p.timestamp), p.id
         """, punch_params).fetchall()]
 
-        leave_params = [date_from, date_to, date_from, date_to]
+        leave_params = [
+            date_from, date_to, date_from, date_to,
+            date_from, date_to, date_from, date_to,
+        ]
         leave_filter = """
             (local_timestamp_date(el.started_at) BETWEEN ? AND ?
              OR local_timestamp_date(el.ended_at) BETWEEN ? AND ?
+             OR local_timestamp_date(el.expected_started_at) BETWEEN ? AND ?
+             OR local_timestamp_date(el.expected_ended_at) BETWEEN ? AND ?
              OR local_timestamp_date(el.started_at) IS NULL
              OR (el.ended_at IS NOT NULL
-                 AND local_timestamp_date(el.ended_at) IS NULL))
+                 AND local_timestamp_date(el.ended_at) IS NULL)
+             OR (el.expected_started_at IS NOT NULL
+                 AND local_timestamp_date(el.expected_started_at) IS NULL)
+             OR (el.expected_ended_at IS NOT NULL
+                 AND local_timestamp_date(el.expected_ended_at) IS NULL))
         """
         if employee_id is not None:
             leave_filter += " AND el.employee_id = ?"
@@ -136,6 +145,7 @@ def build_hours_report(date_from, date_to, employee_id=None):
         leaves = [dict(row) for row in db.execute(f"""
             SELECT el.*, lt.name AS leave_type_name,
                    d.status AS daily_status,
+                   d.total_seconds AS daily_total_seconds,
                    d.guaranteed_daily_minutes,
                    d.local_date AS daily_local_date,
                    e.name AS employee_name
@@ -317,6 +327,7 @@ def build_hours_report(date_from, date_to, employee_id=None):
                 "leave_type": leave["leave_type_name"],
                 "leave_id": leave["id"],
                 "status": leave["daily_status"],
+                "daily_total_seconds": leave["daily_total_seconds"],
                 "guarantee_seconds": leave["guaranteed_daily_minutes"] * 60,
                 "interval": (start, end),
             })
@@ -361,6 +372,31 @@ def build_hours_report(date_from, date_to, employee_id=None):
             ))
 
         status = group[0]["status"]
+        daily_total = group[0].get("daily_total_seconds") or 0
+        guarantee_seconds = group[0]["guarantee_seconds"]
+        if status == "pending":
+            if daily_total > guarantee_seconds:
+                category = "Excés pendent"
+                description = (
+                    f"{(daily_total - guarantee_seconds) / 60:g} minuts d'excés "
+                    "pendents de supervisió."
+                )
+            else:
+                category = "Permís pendent de supervisió"
+                description = "El permís diari encara requereix revisió."
+            issues.append(_issue(
+                group[0]["employee_id"], group[0]["employee_name"],
+                group[0]["date"], category,
+                f"Permís diari «{group[0]['leave_type']}»: {description}",
+            ))
+        elif status == "rejected" and daily_total > guarantee_seconds:
+            excess_minutes = (daily_total - guarantee_seconds) / 60
+            issues.append(_issue(
+                group[0]["employee_id"], group[0]["employee_name"],
+                group[0]["date"], "Excés rebutjat",
+                f"Permís diari «{group[0]['leave_type']}»: "
+                f"{excess_minutes:g} minuts d'excés rebutjats.",
+            ))
         if status == "approved":
             eligible = unique_intervals
         else:
