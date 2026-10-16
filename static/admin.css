@@ -1059,7 +1059,7 @@ input[type="checkbox"] {
 #leave-types-list { display: grid; gap: 12px; }
 .leave-type-row {
     display: grid;
-    grid-template-columns: 30px minmax(180px, 1.5fr) minmax(210px, 1.3fr) minmax(78px, .5fr) minmax(78px, .5fr) 70px 174px;
+    grid-template-columns: 30px minmax(180px, 1.5fr) minmax(210px, 1.3fr) repeat(3, minmax(78px, .5fr)) 70px 174px;
     gap: 8px;
     align-items: center;
     padding: 12px;
@@ -1096,7 +1096,7 @@ input[type="checkbox"] {
 }
 .leave-type-active input { width: 17px; min-height: 17px; height: 17px; margin: 0; }
 .leave-type-actions {
-    grid-column: 7;
+    grid-column: 8;
     display: flex;
     justify-content: flex-end;
     align-items: center;
@@ -1108,15 +1108,15 @@ input[type="checkbox"] {
 .leave-type-row [hidden] { display: none !important; }
 @media (max-width: 1250px) {
     .leave-type-row {
-        grid-template-columns: 30px minmax(155px, 1.4fr) minmax(185px, 1.3fr) minmax(70px, .5fr) minmax(70px, .5fr) 66px 160px;
+        grid-template-columns: 30px minmax(155px, 1.4fr) minmax(185px, 1.3fr) repeat(3, minmax(65px, .5fr)) 66px 160px;
         gap: 6px;
         padding: 10px;
     }
-    .leave-type-actions { grid-column: 7; gap: 4px; }
+    .leave-type-actions { grid-column: 8; gap: 4px; }
     .leave-type-actions button { padding: 7px 8px; font-size: .84rem; }
 }
 @media (max-width: 1050px) {
-    .leave-type-row { grid-template-columns: 30px minmax(0, 1.4fr) minmax(0, 1.3fr) minmax(75px, .6fr) minmax(75px, .6fr); }
+    .leave-type-row { grid-template-columns: 30px minmax(0, 1.4fr) minmax(0, 1.3fr) repeat(3, minmax(75px, .6fr)); }
     .leave-type-active { grid-column: 2; }
     .leave-type-actions { grid-column: 3 / -1; }
 }

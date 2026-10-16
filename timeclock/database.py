@@ -25,6 +25,13 @@ def local_timestamp_date(value):
     return parse_local_timestamp(value).astimezone(LOCAL_TIMEZONE).date().isoformat()
 
 
+def safe_local_timestamp_date(value):
+    try:
+        return local_timestamp_date(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def utc_timestamp_sort_key(value):
     return parse_local_timestamp(value).astimezone(timezone.utc).isoformat(
         timespec="microseconds"
@@ -39,6 +46,7 @@ def get_connection():
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.create_function("utc_timestamp_sort_key", 1, utc_timestamp_sort_key)
+    connection.create_function("local_timestamp_date", 1, safe_local_timestamp_date)
 
     try:
         with connection:
@@ -97,6 +105,8 @@ def init_database():
                 name TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
                 sort_order INTEGER NOT NULL DEFAULT 0,
+                guaranteed_daily_minutes INTEGER NOT NULL DEFAULT 0
+                    CHECK (guaranteed_daily_minutes >= 0),
                 approval_policy TEXT NOT NULL DEFAULT 'manual'
                     CHECK (approval_policy IN ('manual', 'automatic', 'threshold')),
                 max_minutes INTEGER CHECK (max_minutes IS NULL OR max_minutes > 0),
@@ -175,6 +185,52 @@ def init_database():
                 reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
                 CHECK (previous_status != new_status)
             );
+            CREATE TABLE IF NOT EXISTS daily_leave_decision (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id INTEGER NOT NULL REFERENCES employee(id),
+                leave_type_id INTEGER NOT NULL REFERENCES leave_type(id),
+                local_date TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'approved', 'rejected')),
+                decision_source TEXT NOT NULL DEFAULT 'system'
+                    CHECK (decision_source IN ('system', 'automatic', 'supervisor')),
+                total_seconds INTEGER NOT NULL DEFAULT 0 CHECK (total_seconds >= 0),
+                approval_policy TEXT NOT NULL
+                    CHECK (approval_policy IN ('manual', 'automatic', 'threshold')),
+                auto_approve_minutes INTEGER,
+                guaranteed_daily_minutes INTEGER NOT NULL
+                    CHECK (guaranteed_daily_minutes >= 0),
+                updated_at TEXT NOT NULL,
+                UNIQUE (employee_id, leave_type_id, local_date)
+            );
+            CREATE TABLE IF NOT EXISTS daily_leave_decision_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                decision_id INTEGER NOT NULL REFERENCES daily_leave_decision(id),
+                admin_user_id INTEGER REFERENCES admin_user(id),
+                changed_at TEXT NOT NULL,
+                action TEXT NOT NULL CHECK (
+                    action IN ('created', 'total_changed', 'invalidated',
+                               'automatic_approval', 'supervisor_decision')
+                ),
+                previous_status TEXT CHECK (
+                    previous_status IS NULL
+                    OR previous_status IN ('pending', 'approved', 'rejected')
+                ),
+                new_status TEXT NOT NULL
+                    CHECK (new_status IN ('pending', 'approved', 'rejected')),
+                total_seconds INTEGER NOT NULL CHECK (total_seconds >= 0),
+                approval_policy TEXT NOT NULL
+                    CHECK (approval_policy IN ('manual', 'automatic', 'threshold')),
+                auto_approve_minutes INTEGER,
+                guaranteed_daily_minutes INTEGER NOT NULL
+                    CHECK (guaranteed_daily_minutes >= 0),
+                reason TEXT NOT NULL DEFAULT '',
+                CHECK (
+                    (action = 'supervisor_decision' AND admin_user_id IS NOT NULL
+                        AND length(trim(reason)) > 0)
+                    OR (action != 'supervisor_decision' AND admin_user_id IS NULL)
+                )
+            );
         """)
         # Migration compatible amb els permisos creats abans del sprint 3.
         leave_columns = {
@@ -191,6 +247,7 @@ def init_database():
             "expected_ended_at": "TEXT",
             "regularization_reason": "TEXT",
             "regularization_kind": "TEXT CHECK (regularization_kind IN ('return', 'late_arrival', 'early_departure'))",
+            "daily_decision_id": "INTEGER REFERENCES daily_leave_decision(id)",
         }
         for column, definition in leave_migrations.items():
             if column not in leave_columns:
@@ -203,6 +260,15 @@ def init_database():
         db.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_leave_one_open
             ON employee_leave(employee_id) WHERE record_state = 'open'
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_employee_leave_daily_decision
+            ON employee_leave(daily_decision_id)
+            WHERE daily_decision_id IS NOT NULL
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_daily_leave_decision_pending
+            ON daily_leave_decision(status, local_date)
         """)
 
         admin_columns = {row["name"] for row in db.execute("PRAGMA table_info(admin_user)").fetchall()}
@@ -220,6 +286,12 @@ def init_database():
         if "sort_order" not in leave_type_columns:
             db.execute("ALTER TABLE leave_type ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
             db.execute("UPDATE leave_type SET sort_order = id")
+        if "guaranteed_daily_minutes" not in leave_type_columns:
+            db.execute("""
+                ALTER TABLE leave_type
+                ADD COLUMN guaranteed_daily_minutes INTEGER NOT NULL DEFAULT 0
+                    CHECK (guaranteed_daily_minutes >= 0)
+            """)
 
         review_columns = {row["name"] for row in db.execute("PRAGMA table_info(punch_incident_review)").fetchall()}
         review_indexes = db.execute("PRAGMA index_list(punch_incident_review)").fetchall()
@@ -963,7 +1035,8 @@ def list_punch_incident_reviews(punch_id):
     return [dict(row) for row in rows]
 
 
-def _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minutes):
+def _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minutes,
+                         guaranteed_daily_minutes):
     name = str(name or "").strip()
     if not name or len(name) > 100:
         raise ValueError("El nom ha de tenir entre 1 i 100 caràcters")
@@ -972,6 +1045,8 @@ def _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minute
     for value in (max_minutes, auto_approve_minutes):
         if value is not None and (type(value) is not int or value <= 0):
             raise ValueError("La durada ha de ser un nombre enter positiu")
+    if type(guaranteed_daily_minutes) is not int or guaranteed_daily_minutes < 0:
+        raise ValueError("Els minuts garantits han de ser un nombre enter no negatiu")
     if approval_policy == "threshold" and auto_approve_minutes is None:
         raise ValueError("Cal indicar el límit d'aprovació automàtica")
     if approval_policy != "threshold" and auto_approve_minutes is not None:
@@ -991,24 +1066,38 @@ def list_leave_types():
 
 
 def create_leave_type(name, approval_policy="manual", max_minutes=None,
-                      auto_approve_minutes=None, active=True):
-    name = _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minutes)
+                      auto_approve_minutes=None, active=True,
+                      guaranteed_daily_minutes=0):
+    name = _validate_leave_type(
+        name, approval_policy, max_minutes, auto_approve_minutes,
+        guaranteed_daily_minutes,
+    )
     if type(active) is not bool:
         raise ValueError("Estat actiu no vàlid")
     with get_connection() as db:
         try:
             cursor = db.execute("""
-                INSERT INTO leave_type (name, approval_policy, max_minutes, auto_approve_minutes, active, sort_order)
-                VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM leave_type), 1))
-            """, (name, approval_policy, max_minutes, auto_approve_minutes, int(active)))
+                INSERT INTO leave_type (
+                    name, approval_policy, max_minutes, auto_approve_minutes,
+                    active, guaranteed_daily_minutes, sort_order
+                )
+                VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM leave_type), 1))
+            """, (
+                name, approval_policy, max_minutes, auto_approve_minutes,
+                int(active), guaranteed_daily_minutes,
+            ))
         except sqlite3.IntegrityError:
             raise ValueError("Ja existeix un tipus de permís amb aquest nom")
         return cursor.lastrowid
 
 
 def update_leave_type(type_id, name, approval_policy, max_minutes=None,
-                      auto_approve_minutes=None, active=True):
-    name = _validate_leave_type(name, approval_policy, max_minutes, auto_approve_minutes)
+                      auto_approve_minutes=None, active=True,
+                      guaranteed_daily_minutes=0):
+    name = _validate_leave_type(
+        name, approval_policy, max_minutes, auto_approve_minutes,
+        guaranteed_daily_minutes,
+    )
     if type(active) is not bool:
         raise ValueError("Estat actiu no vàlid")
     with get_connection() as db:
@@ -1016,9 +1105,13 @@ def update_leave_type(type_id, name, approval_policy, max_minutes=None,
             cursor = db.execute("""
                 UPDATE leave_type
                 SET name = ?, approval_policy = ?, max_minutes = ?,
-                    auto_approve_minutes = ?, active = ?
+                    auto_approve_minutes = ?, active = ?,
+                    guaranteed_daily_minutes = ?
                 WHERE id = ?
-            """, (name, approval_policy, max_minutes, auto_approve_minutes, int(active), type_id))
+            """, (
+                name, approval_policy, max_minutes, auto_approve_minutes,
+                int(active), guaranteed_daily_minutes, type_id,
+            ))
         except sqlite3.IntegrityError:
             raise ValueError("Ja existeix un tipus de permís amb aquest nom")
         if not cursor.rowcount:
@@ -1058,7 +1151,8 @@ def list_active_leave_types():
     """Tipus disponibles al terminal, sense exposar els inactius."""
     with get_connection() as db:
         rows = db.execute("""
-            SELECT id, name, approval_policy, max_minutes, auto_approve_minutes
+            SELECT id, name, approval_policy, max_minutes, auto_approve_minutes,
+                   guaranteed_daily_minutes
             FROM leave_type WHERE active = 1
             ORDER BY sort_order, id
         """).fetchall()
@@ -1217,15 +1311,10 @@ def finish_employee_leave(employee_id, method="pin", confirm_incident=False, now
             return {"ok": False, "confirmation_required": True, "error": note}
 
         duration_seconds = (end - start).total_seconds()
-        auto_approve = (
-            not unexpected and not leave["requires_supervisor"]
-            and (
-                leave["approval_policy"] == "automatic"
-                or (leave["approval_policy"] == "threshold"
-                    and duration_seconds <= leave["auto_approve_minutes"] * 60)
-            )
+        crosses_local_day = (
+            local_timestamp_date(leave["started_at"])
+            != now.astimezone(LOCAL_TIMEZONE).date().isoformat()
         )
-        status = "approved" if auto_approve else "pending"
         punch = db.execute("""
             INSERT INTO punch (employee_id, timestamp, type, method, incident, note)
             VALUES (?, ?, 'entrada', ?, ?, ?)
@@ -1233,14 +1322,22 @@ def finish_employee_leave(employee_id, method="pin", confirm_incident=False, now
         db.execute("""
             UPDATE employee_leave
             SET ended_at = ?, end_punch_id = ?, record_state = 'finished',
-                status = ?, requires_supervisor = ?
+                status = 'pending', requires_supervisor = ?
             WHERE id = ?
-        """, (timestamp, punch.lastrowid, status,
-              int(bool(leave["requires_supervisor"] or unexpected)), leave["id"]))
+        """, (timestamp, punch.lastrowid,
+              int(bool(leave["requires_supervisor"] or unexpected or crosses_local_day)),
+              leave["id"]))
+        daily_decision = (
+            None if crosses_local_day
+            else _refresh_daily_leave_decision(db, leave["id"])
+        )
+        status = daily_decision["status"] if daily_decision else "pending"
         return {
             "ok": True, "leave_id": leave["id"], "punch_id": punch.lastrowid,
             "timestamp": timestamp, "duration_seconds": duration_seconds,
             "status": status, "incident": int(unexpected),
+            "daily_decision": daily_decision,
+            "crosses_local_day": crosses_local_day,
         }
 
 
@@ -1351,15 +1448,193 @@ def punch_with_open_leave(employee_id, punch_type, return_choice=None,
         }
 
 
+def _leave_duration_seconds(leave):
+    if leave["regularization_kind"] == "late_arrival":
+        start_value = leave["expected_started_at"]
+        end_value = leave["started_at"]
+    elif leave["regularization_kind"] == "early_departure":
+        start_value = leave["started_at"]
+        end_value = leave["expected_ended_at"]
+    else:
+        start_value = leave["started_at"]
+        end_value = leave["ended_at"]
+    start = parse_local_timestamp(start_value).astimezone(timezone.utc)
+    end = parse_local_timestamp(end_value).astimezone(timezone.utc)
+    return max(0, round((end - start).total_seconds()))
+
+
+def _refresh_daily_leave_decision(db, leave_id):
+    leave = db.execute("""
+        SELECT el.*, lt.approval_policy, lt.auto_approve_minutes,
+               lt.guaranteed_daily_minutes
+        FROM employee_leave el
+        JOIN leave_type lt ON lt.id = el.leave_type_id
+        WHERE el.id = ? AND el.record_state = 'finished' AND el.ended_at IS NOT NULL
+    """, (leave_id,)).fetchone()
+    if leave is None:
+        return None
+
+    local_date = local_timestamp_date(leave["started_at"])
+    interval_end = (
+        leave["expected_started_at"]
+        if leave["regularization_kind"] == "late_arrival"
+        else leave["expected_ended_at"]
+        if leave["regularization_kind"] == "early_departure"
+        else leave["ended_at"]
+    )
+    if local_timestamp_date(interval_end) != local_date:
+        db.execute("""
+            UPDATE employee_leave SET daily_decision_id = NULL, status = 'pending',
+                requires_supervisor = 1 WHERE id = ?
+        """, (leave_id,))
+        return None
+
+    decision = db.execute("""
+        SELECT id, status, decision_source, total_seconds, approval_policy,
+               auto_approve_minutes, guaranteed_daily_minutes
+        FROM daily_leave_decision
+        WHERE employee_id = ? AND leave_type_id = ? AND local_date = ?
+    """, (leave["employee_id"], leave["leave_type_id"], local_date)).fetchone()
+    created = decision is None
+    if created:
+        decision_id = db.execute("""
+            INSERT INTO daily_leave_decision
+                (employee_id, leave_type_id, local_date, status,
+                 decision_source, total_seconds, approval_policy,
+                 auto_approve_minutes, guaranteed_daily_minutes, updated_at)
+            VALUES (?, ?, ?, 'pending', 'system', 0, ?, ?, ?, ?)
+        """, (
+            leave["employee_id"], leave["leave_type_id"], local_date,
+            leave["approval_policy"], leave["auto_approve_minutes"],
+            leave["guaranteed_daily_minutes"],
+            datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds"),
+        )).lastrowid
+        approval_policy = leave["approval_policy"]
+        auto_approve_minutes = leave["auto_approve_minutes"]
+        guaranteed_daily_minutes = leave["guaranteed_daily_minutes"]
+    else:
+        decision_id = decision["id"]
+        approval_policy = decision["approval_policy"]
+        auto_approve_minutes = decision["auto_approve_minutes"]
+        guaranteed_daily_minutes = decision["guaranteed_daily_minutes"]
+    db.execute(
+        "UPDATE employee_leave SET daily_decision_id = ? WHERE id = ?",
+        (decision_id, leave_id),
+    )
+
+    members = db.execute("""
+        SELECT * FROM employee_leave
+        WHERE daily_decision_id = ? AND record_state = 'finished'
+          AND ended_at IS NOT NULL
+    """, (decision_id,)).fetchall()
+    total_seconds = sum(_leave_duration_seconds(member) for member in members)
+    requires_supervisor = any(member["requires_supervisor"] for member in members)
+    total_changed = created or total_seconds != decision["total_seconds"]
+    invalidated = (
+        not created and total_changed
+        and decision["status"] != "pending"
+        and decision["decision_source"] == "supervisor"
+    )
+
+    no_excess = total_seconds <= guaranteed_daily_minutes * 60
+    if invalidated or requires_supervisor:
+        status, source = "pending", "system"
+    elif approval_policy == "automatic" or (
+        approval_policy == "threshold"
+        and total_seconds <= auto_approve_minutes * 60
+    ):
+        status, source = "approved", "automatic"
+    elif no_excess:
+        status, source = "approved", "system"
+    else:
+        status, source = "pending", "system"
+
+    if created and status == "approved" and source == "automatic":
+        action = "automatic_approval"
+    elif created:
+        action = "created"
+    elif invalidated:
+        action = "invalidated"
+    elif status == "approved" and source == "automatic" and (
+        decision["status"] != "approved"
+        or decision["decision_source"] != "automatic"
+    ):
+        action = "automatic_approval"
+    else:
+        action = "total_changed"
+
+    if total_changed:
+        changed_at = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
+        db.execute("""
+            UPDATE daily_leave_decision
+            SET status = ?, decision_source = ?, total_seconds = ?,
+                updated_at = ?
+            WHERE id = ?
+        """, (
+            status, source, total_seconds, changed_at, decision_id,
+        ))
+        db.execute("""
+            INSERT INTO daily_leave_decision_history
+                (decision_id, changed_at, action, previous_status,
+                 new_status, total_seconds, approval_policy,
+                 auto_approve_minutes, guaranteed_daily_minutes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            decision_id, changed_at, action,
+            None if created else decision["status"], status, total_seconds,
+            approval_policy, auto_approve_minutes, guaranteed_daily_minutes,
+        ))
+        db.execute(
+            "UPDATE employee_leave SET status = ? WHERE daily_decision_id = ?",
+            (status, decision_id),
+        )
+    elif decision["status"] != status or decision["decision_source"] != source:
+        changed_at = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
+        db.execute("""
+            UPDATE daily_leave_decision
+            SET status = ?, decision_source = ?, updated_at = ?
+            WHERE id = ?
+        """, (status, source, changed_at, decision_id))
+        db.execute("""
+            INSERT INTO daily_leave_decision_history
+                (decision_id, changed_at, action, previous_status,
+                 new_status, total_seconds, approval_policy,
+                 auto_approve_minutes, guaranteed_daily_minutes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            decision_id, changed_at,
+            "automatic_approval" if source == "automatic" else "total_changed",
+            decision["status"], status, total_seconds, approval_policy,
+            auto_approve_minutes, guaranteed_daily_minutes,
+        ))
+        db.execute(
+            "UPDATE employee_leave SET status = ? WHERE daily_decision_id = ?",
+            (status, decision_id),
+        )
+
+    guaranteed_seconds = min(
+        total_seconds, guaranteed_daily_minutes * 60
+    )
+    recognized_seconds = (
+        total_seconds if status == "approved" else guaranteed_seconds
+    )
+    return {
+        "id": decision_id, "local_date": local_date, "status": status,
+        "decision_source": source, "total_seconds": total_seconds,
+        "guaranteed_seconds": guaranteed_seconds,
+        "recognized_seconds": recognized_seconds,
+    }
+
+
 def list_employee_leaves_for_supervision(filter_by="all"):
     """Consulta de permisos per al supervisor, sense modificar-ne l'estat."""
     if filter_by not in ("all", "regularization", "approval", "history"):
         raise ValueError("Filtre de permisos no vàlid")
     conditions = {
-        "all": "1 = 1",
-        "regularization": "el.record_state = 'needs_regularization'",
-        "approval": "el.status = 'pending' AND el.record_state = 'finished'",
-        "history": "el.status IN ('approved', 'rejected')",
+        "all": "el.daily_decision_id IS NULL",
+        "regularization": "el.daily_decision_id IS NULL AND el.record_state = 'needs_regularization'",
+        "approval": "el.daily_decision_id IS NULL AND el.status = 'pending' AND el.record_state = 'finished'",
+        "history": "el.daily_decision_id IS NULL AND el.status IN ('approved', 'rejected')",
     }
     with get_connection() as db:
         rows = db.execute(f"""
@@ -1367,7 +1642,7 @@ def list_employee_leaves_for_supervision(filter_by="all"):
                    el.leave_type_id, lt.name AS leave_type_name,
                    el.started_at, el.ended_at, el.status, el.record_state,
                    el.requires_supervisor, el.start_punch_id, el.end_punch_id,
-                   el.regularized_at, el.regularized_by
+                   el.regularized_at, el.regularized_by, el.daily_decision_id
             FROM employee_leave el
             JOIN employee e ON e.id = el.employee_id
             JOIN leave_type lt ON lt.id = el.leave_type_id
@@ -1375,6 +1650,133 @@ def list_employee_leaves_for_supervision(filter_by="all"):
             ORDER BY utc_timestamp_sort_key(el.started_at) DESC, el.id DESC
         """).fetchall()
     return [dict(row) for row in rows]
+
+
+def list_daily_leave_decisions_for_supervision(filter_by="all"):
+    if filter_by not in ("all", "approval", "history"):
+        raise ValueError("Filtre de decisions diàries no vàlid")
+    condition = {
+        "all": "1 = 1",
+        "approval": "d.status = 'pending'",
+        "history": "d.status IN ('approved', 'rejected')",
+    }[filter_by]
+    with get_connection() as db:
+        rows = db.execute(f"""
+            SELECT d.id, d.employee_id, e.name AS employee_name,
+                   d.leave_type_id, lt.name AS leave_type_name,
+                   d.local_date, d.status, d.decision_source, d.total_seconds,
+                   d.guaranteed_daily_minutes,
+                   MIN(d.total_seconds, d.guaranteed_daily_minutes * 60)
+                       AS guaranteed_seconds,
+                   CASE WHEN d.status = 'approved' THEN d.total_seconds
+                        ELSE MIN(d.total_seconds, d.guaranteed_daily_minutes * 60)
+                   END AS recognized_seconds,
+                   (SELECT COUNT(*) FROM employee_leave el
+                    WHERE el.daily_decision_id = d.id) AS leave_count,
+                   EXISTS(
+                       SELECT 1 FROM employee_leave el
+                       WHERE el.daily_decision_id = d.id AND el.requires_supervisor = 1
+                   ) AS requires_supervisor,
+                   d.updated_at
+            FROM daily_leave_decision d
+            JOIN employee e ON e.id = d.employee_id
+            JOIN leave_type lt ON lt.id = d.leave_type_id
+            WHERE {condition}
+            ORDER BY d.local_date DESC, e.name COLLATE NOCASE, lt.name COLLATE NOCASE
+        """).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_daily_leave_decision_for_supervision(decision_id):
+    with get_connection() as db:
+        decision = db.execute("""
+            SELECT d.*, e.name AS employee_name, lt.name AS leave_type_name,
+                   d.guaranteed_daily_minutes,
+                   MIN(d.total_seconds, d.guaranteed_daily_minutes * 60)
+                       AS guaranteed_seconds,
+                   CASE WHEN d.status = 'approved' THEN d.total_seconds
+                    ELSE MIN(d.total_seconds, d.guaranteed_daily_minutes * 60)
+                   END AS recognized_seconds,
+                   MAX(0, d.total_seconds - d.guaranteed_daily_minutes * 60)
+                       AS excess_seconds
+            FROM daily_leave_decision d
+            JOIN employee e ON e.id = d.employee_id
+            JOIN leave_type lt ON lt.id = d.leave_type_id
+            WHERE d.id = ?
+        """, (decision_id,)).fetchone()
+        if decision is None:
+            return None
+        leaves = db.execute("""
+            SELECT id, started_at, ended_at, status, requires_supervisor,
+                   regularization_kind, regularization_reason
+            FROM employee_leave
+            WHERE daily_decision_id = ?
+            ORDER BY utc_timestamp_sort_key(started_at), id
+        """, (decision_id,)).fetchall()
+        history = db.execute("""
+            SELECT h.id, h.changed_at, h.action, h.previous_status,
+                   h.new_status, h.total_seconds, h.approval_policy,
+                   h.auto_approve_minutes, h.guaranteed_daily_minutes, h.reason,
+                   u.username AS reviewer_name
+            FROM daily_leave_decision_history h
+            LEFT JOIN admin_user u ON u.id = h.admin_user_id
+            WHERE h.decision_id = ?
+            ORDER BY utc_timestamp_sort_key(h.changed_at), h.id
+        """, (decision_id,)).fetchall()
+    return {
+        **dict(decision),
+        "leaves": [dict(row) for row in leaves],
+        "decision_history": [dict(row) for row in history],
+    }
+
+
+def decide_daily_leave(decision_id, new_status, admin_user_id, reason):
+    if new_status not in ("approved", "rejected"):
+        raise ValueError("Decisió diària no vàlida")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("Cal justificar la decisió")
+    with get_connection() as db:
+        reviewer = db.execute("""
+            SELECT id FROM admin_user
+            WHERE id = ? AND active = 1 AND role IN ('admin', 'supervisor')
+        """, (admin_user_id,)).fetchone()
+        if reviewer is None:
+            raise ValueError("Supervisor no vàlid o inactiu")
+        decision = db.execute("""
+            SELECT status, total_seconds, approval_policy, auto_approve_minutes,
+                   guaranteed_daily_minutes
+            FROM daily_leave_decision WHERE id = ?
+        """, (decision_id,)).fetchone()
+        if decision is None:
+            raise ValueError("Decisió diària no trobada")
+        if decision["status"] == new_status:
+            raise ValueError("La decisió diària ja té aquest estat")
+        changed_at = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="seconds")
+        db.execute("""
+            INSERT INTO daily_leave_decision_history
+                (decision_id, admin_user_id, changed_at, action,
+                 previous_status, new_status, total_seconds, approval_policy,
+                 auto_approve_minutes, guaranteed_daily_minutes, reason)
+            VALUES (?, ?, ?, 'supervisor_decision', ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            decision_id, admin_user_id, changed_at, decision["status"],
+            new_status, decision["total_seconds"], decision["approval_policy"],
+            decision["auto_approve_minutes"], decision["guaranteed_daily_minutes"],
+            reason.strip(),
+        ))
+        db.execute("""
+            UPDATE daily_leave_decision
+            SET status = ?, decision_source = 'supervisor', updated_at = ?
+            WHERE id = ?
+        """, (new_status, changed_at, decision_id))
+        db.execute("""
+            UPDATE employee_leave SET status = ?
+            WHERE daily_decision_id = ?
+        """, (new_status, decision_id))
+    return {
+        "ok": True, "decision_id": decision_id,
+        "previous_status": decision["status"], "status": new_status,
+    }
 
 
 def get_employee_leave_for_supervision(leave_id):
@@ -1476,6 +1878,7 @@ def regularize_employee_leave_return(leave_id, returned_at, admin_user_id, reaso
                 regularization_reason = ?, regularization_kind = 'return'
             WHERE id = ?
         """, (returned_at, now, admin_user_id, reason.strip(), leave_id))
+        _refresh_daily_leave_decision(db, leave_id)
     return {"ok": True, "leave_id": leave_id, "record_state": "finished",
             "status": "pending"}
 
@@ -1528,6 +1931,7 @@ def regularize_employee_leave_late_arrival(leave_id, expected_started_at, admin_
                 regularization_reason = ?
             WHERE id = ?
         """, (expected_started_at, now, admin_user_id, reason.strip(), leave_id))
+        _refresh_daily_leave_decision(db, leave_id)
     return {"ok": True, "leave_id": leave_id, "record_state": "finished",
             "status": "pending"}
 
@@ -1595,6 +1999,7 @@ def regularize_employee_leave_early_departure(leave_id, expected_ended_at, admin
             WHERE id = ?
         """, (expected_ended_at, expected_ended_at, now,
               admin_user_id, reason.strip(), leave_id))
+        _refresh_daily_leave_decision(db, leave_id)
     return {"ok": True, "leave_id": leave_id, "record_state": "finished",
             "status": "pending"}
 
@@ -1646,10 +2051,13 @@ def decide_employee_leave(leave_id, new_status, admin_user_id, reason):
         if reviewer is None:
             raise ValueError("Supervisor no vàlid o inactiu")
         leave = db.execute("""
-            SELECT status, record_state FROM employee_leave WHERE id = ?
+            SELECT status, record_state, daily_decision_id
+            FROM employee_leave WHERE id = ?
         """, (leave_id,)).fetchone()
         if leave is None:
             raise ValueError("Permís no trobat")
+        if leave["daily_decision_id"] is not None:
+            raise ValueError("Aquest permís forma part d'una decisió diària")
         if leave["record_state"] != "finished":
             raise ValueError("Cal finalitzar o regularitzar el permís abans de decidir")
         previous_status = leave["status"]

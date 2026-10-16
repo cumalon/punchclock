@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 import zipfile
+from openpyxl import Workbook
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -45,6 +46,7 @@ from timeclock.database import (
 from pathlib import Path
 
 from timeclock import branding, database
+from timeclock.hours_report import build_hours_report
 import backup as backup_module
 from backup import create_backup, restore_backup, verify_backup
 
@@ -434,6 +436,7 @@ def admin_logout():
 
 SUPERVISOR_ENDPOINTS = {
     "admin_punches", "admin_export_csv", "admin_timeline",
+    "admin_hours_report", "admin_hours_report_xlsx",
     "admin_correct_punch", "admin_review_punch_incident",
     "admin_punch_incident_reviews", "admin_punch_corrections",
     "admin_employees", "admin_change_password", "admin_logout",
@@ -441,7 +444,8 @@ SUPERVISOR_ENDPOINTS = {
     "admin_classify_leave",
     "admin_regularize_leave_return",
     "admin_regularize_leave_late_arrival", "admin_regularize_leave_early_departure",
-    "admin_decide_leave",
+    "admin_decide_leave", "admin_daily_leave_decisions",
+    "admin_daily_leave_decision_detail", "admin_decide_daily_leave",
 }
 
 
@@ -647,6 +651,42 @@ def admin_decide_leave(leave_id):
     return jsonify(result)
 
 
+@app.get("/api/admin/daily-leave-decisions")
+def admin_daily_leave_decisions():
+    filter_by = request.args.get("filter", "all")
+    try:
+        decisions = database.list_daily_leave_decisions_for_supervision(filter_by)
+    except ValueError:
+        return jsonify({
+            "ok": False, "error": "Filtre de decisions diàries no vàlid",
+        }), 400
+    return jsonify({"ok": True, "daily_decisions": decisions})
+
+
+@app.get("/api/admin/daily-leave-decisions/<int:decision_id>")
+def admin_daily_leave_decision_detail(decision_id):
+    decision = database.get_daily_leave_decision_for_supervision(decision_id)
+    if decision is None:
+        return jsonify({"ok": False, "error": "Decisió diària no trobada"}), 404
+    return jsonify({"ok": True, "daily_decision": decision})
+
+
+@app.post("/api/admin/daily-leave-decisions/<int:decision_id>/decision")
+def admin_decide_daily_leave(decision_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        result = database.decide_daily_leave(
+            decision_id, data.get("status"),
+            session["admin_user_id"], data.get("reason"),
+        )
+    except ValueError:
+        return jsonify({
+            "ok": False,
+            "error": "No s'ha pogut registrar la decisió diària. Revisa les dades i l'estat del còmput.",
+        }), 400
+    return jsonify(result)
+
+
 @app.get("/api/admin/leave-types")
 def admin_leave_types():
     return jsonify({"ok": True, "leave_types": database.list_leave_types()})
@@ -669,7 +709,7 @@ def admin_create_leave_type():
         type_id = database.create_leave_type(
             data.get("name"), data.get("approval_policy", "manual"),
             data.get("max_minutes"), data.get("auto_approve_minutes"),
-            data.get("active", True),
+            data.get("active", True), data.get("guaranteed_daily_minutes", 0),
         )
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
@@ -683,7 +723,7 @@ def admin_update_leave_type(type_id):
         database.update_leave_type(
             type_id, data.get("name"), data.get("approval_policy", "manual"),
             data.get("max_minutes"), data.get("auto_approve_minutes"),
-            data.get("active", True),
+            data.get("active", True), data.get("guaranteed_daily_minutes", 0),
         )
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
@@ -774,6 +814,101 @@ def admin_export_csv():
         "\ufeff" + output.getvalue(),
         mimetype="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+def _requested_hours_report():
+    date_from = request.args.get("date_from", "")
+    date_to = request.args.get("date_to", "")
+    employee_value = request.args.get("employee_id", "")
+    if employee_value and not employee_value.isdecimal():
+        raise ValueError("Treballador no vàlid")
+    employee_id = int(employee_value) if employee_value else None
+    return build_hours_report(date_from, date_to, employee_id)
+
+
+@app.get("/api/admin/hours-report")
+def admin_hours_report():
+    try:
+        return jsonify({"ok": True, "report": _requested_hours_report()})
+    except ValueError:
+        return jsonify({"ok": False, "error": "Filtres de còmput no vàlids"}), 400
+
+
+@app.get("/api/admin/hours-report.xlsx")
+def admin_hours_report_xlsx():
+    try:
+        report = _requested_hours_report()
+    except ValueError:
+        return jsonify({"ok": False, "error": "Filtres de còmput no vàlids"}), 400
+
+    workbook = Workbook()
+    summary = workbook.active
+    summary.title = "Resum"
+    summary.append([
+        "Treballador", "Temps treballat (h)", "Permís reconegut (h)",
+        "Total computable (h)", "Incidències",
+    ])
+    for employee in report["employees"]:
+        summary.append([
+            employee["employee_name"],
+            round(employee["worked_seconds"] / 3600, 4),
+            round(employee["leave_seconds"] / 3600, 4),
+            round(employee["total_seconds"] / 3600, 4),
+            employee["incident_count"],
+        ])
+
+    daily = workbook.create_sheet("Detall diari")
+    daily.append([
+        "Data", "Treballador", "Temps treballat (h)",
+        "Permís reconegut (h)", "Total computable (h)", "Detall de permisos",
+    ])
+    for day in report["days"]:
+        leave_detail = "; ".join(
+            f"{item['leave_type']}: {item['recognized_seconds'] / 60:g} min "
+            f"({item['status']}, {item['record_count']} registres)"
+            for item in day["leave_details"]
+        )
+        daily.append([
+            day["date"], day["employee_name"],
+            round(day["worked_seconds"] / 3600, 4),
+            round(day["leave_seconds"] / 3600, 4),
+            round(day["total_seconds"] / 3600, 4),
+            leave_detail,
+        ])
+
+    incidents = workbook.create_sheet("Incidències")
+    incidents.append([
+        "Data", "Treballador", "Categoria", "Detall",
+    ])
+    for issue in report["incidents"]:
+        incidents.append([
+            issue["date"], issue["employee_name"],
+            issue["category"], issue["description"],
+        ])
+
+    for worksheet in workbook.worksheets:
+        worksheet.freeze_panes = "A2"
+        worksheet.auto_filter.ref = worksheet.dimensions
+        for column in worksheet.columns:
+            width = min(
+                60,
+                max(12, max(len(str(cell.value or "")) for cell in column) + 2),
+            )
+            worksheet.column_dimensions[column[0].column_letter].width = width
+        for row in worksheet.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value.startswith(("=", "+", "-", "@")):
+                    cell.value = "'" + cell.value
+
+    output = io.BytesIO()
+    workbook.save(output)
+    return Response(
+        output.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="informe-hores.xlsx"'
+        },
     )
 
 

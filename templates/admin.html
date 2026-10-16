@@ -6,7 +6,7 @@
     <title>TimeClockPi - Administració</title>
     <meta name="csrf-token" content="{{ csrf_token }}">
     <meta name="user-role" content="{{ role }}">
-    <link rel="stylesheet" href="/static/admin.css?v=6.27">
+    <link rel="stylesheet" href="/static/admin.css?v=6.29">
 </head>
 <body>
     <div class="admin-layout">
@@ -15,6 +15,7 @@
             <nav>
                 <a href="#fitxatges" data-section="punches">Fitxatges</a>
                 <a href="#permisos-personal" data-section="leaves">Permisos del personal</a>
+                <a href="#comput-hores" data-section="hours-report">Còmput d'hores</a>
                 {% if role == 'admin' %}<a class="active" href="#treballadors" data-section="employees">Treballadors</a>{% endif %}
                 <span class="nav-separator" aria-hidden="true"></span>
                 {% if role == 'admin' %}
@@ -119,6 +120,56 @@
                 </section>
             </div>
 
+            <div id="hours-report-section" class="hidden">
+                <header class="section-header">
+                    <h1>Còmput d'hores</h1>
+                    <p>Consulta les hores treballades i els permisos reconeguts per període.</p>
+                </header>
+                <section class="panel">
+                    <h2>Període i treballador</h2>
+                    <div class="filters">
+                        <label>Treballador
+                            <select id="hours-report-employee"><option value="">Tots</option></select>
+                        </label>
+                        <label>Data inicial <input id="hours-report-from" type="date" required></label>
+                        <label>Data final <input id="hours-report-to" type="date" required></label>
+                    </div>
+                    <div class="filter-actions">
+                        <button id="hours-report-run" type="button">Calcular</button>
+                        <button id="hours-report-xlsx" class="secondary-button" type="button">Exportar XLSX</button>
+                    </div>
+                    <p class="hint">Els dies inicial i final s'inclouen. Els fitxatges amb incidències pendents i els intervals incomplets no generen hores treballades. Els intervals que travessen la mitjanit queden fora del còmput.</p>
+                    <p id="hours-report-message" role="status"></p>
+                </section>
+                <section class="panel">
+                    <h2>Resum per treballador</h2>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Treballador</th><th>Temps treballat</th><th>Permís reconegut</th><th>Total computable</th><th>Incidències</th></tr></thead>
+                            <tbody id="hours-report-summary"></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="panel">
+                    <h2>Detall diari</h2>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Data</th><th>Treballador</th><th>Treballat</th><th>Permís reconegut</th><th>Total</th><th>Detall de permisos</th></tr></thead>
+                            <tbody id="hours-report-days"></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="panel">
+                    <h2>Incidències i registres no computats</h2>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Data</th><th>Treballador</th><th>Categoria</th><th>Detall</th></tr></thead>
+                            <tbody id="hours-report-incidents"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
             <div id="leaves-section" class="hidden">
                 <header class="section-header">
                     <h1>Permisos del personal</h1>
@@ -144,7 +195,7 @@
             </div>
 
             <section id="leave-supervision-detail" class="panel hidden">
-                <h2>Detall del permís</h2>
+                <h2>Detall del permís o del còmput diari</h2>
                 <div id="leave-supervision-detail-content"></div>
                 <p id="leave-supervision-detail-message" role="status"></p>
                 <button id="close-leave-supervision-detail" type="button" class="secondary-button">Tancar detall</button>
@@ -155,6 +206,7 @@
                 <header class="section-header"><h1>Tipus de permisos</h1><p>Configura els permisos disponibles per als treballadors.</p></header>
                 <section class="panel">
                     <h2>Nou tipus de permís</h2>
+                    <p>Els permisos s’acumulen per treballador, tipus i dia. Es reconeixen fins als minuts garantits diaris encara que l’excés estigui pendent o rebutjat. El llindar d’aprovació automàtica s’aplica al total acumulat del dia; si se supera, l’excés requereix una única decisió de supervisió.</p>
                     <form id="new-leave-type">
                         <label>Nom <input id="leave-type-name" maxlength="100" required></label>
                         <label>Política d'aprovació
@@ -165,7 +217,8 @@
                             </select>
                         </label>
                         <label>Durada de referència (minuts, opcional) <input id="leave-type-max" type="number" min="1" step="1"></label>
-                        <label>Límit d’aprovació automàtica (minuts) <input id="leave-type-threshold" type="number" min="1" step="1"></label>
+                        <label>Llindar d’aprovació automàtica (minuts) <input id="leave-type-threshold" type="number" min="1" step="1"></label>
+                        <label>Minuts garantits diaris <input id="leave-type-guaranteed" type="number" min="0" step="1" value="0" required></label>
                         <button type="submit">Crear tipus</button>
                     </form>
                     <p id="leave-type-message" role="status"></p>
@@ -295,6 +348,6 @@
             </div>
         </main>
     </div>
-    <script src="/static/admin.js?v=7.11"></script>
+    <script src="/static/admin.js?v=7.14"></script>
 </body>
 </html>

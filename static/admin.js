@@ -107,6 +107,7 @@ if (!isSupervisor) {
 
 const employeesSection = document.getElementById("employees-section");
 const punchesSection = document.getElementById("punches-section");
+const hoursReportSection = document.getElementById("hours-report-section");
 const settingsSection = document.getElementById("settings-section");
 const backupsSection = document.getElementById("backups-section");
 const punchEmployee = document.getElementById("punch-employee");
@@ -133,9 +134,10 @@ function setActionButton(button, icon, label) {
 }
 
 function showSection(section) {
-    if (isSupervisor && !["punches", "leaves"].includes(section)) section = "punches";
+    if (isSupervisor && !["punches", "leaves", "hours-report"].includes(section)) section = "punches";
     employeesSection.classList.toggle("hidden", section !== "employees");
     punchesSection.classList.toggle("hidden", section !== "punches");
+    hoursReportSection.classList.toggle("hidden", section !== "hours-report");
     document.getElementById("leaves-section").classList.toggle("hidden", section !== "leaves");
     document.getElementById("leave-supervision-detail").classList.add("hidden");
     settingsSection.classList.toggle("hidden", section !== "settings");
@@ -152,6 +154,7 @@ function showSection(section) {
     document.querySelector(".page-header").classList.toggle("hidden", section !== "employees");
 
     if (section === "punches") loadPunches();
+    if (section === "hours-report") loadHoursReport();
     if (section === "leaves") loadSupervisionLeaves();
     if (section === "settings") loadSettings();
     if (section === "users") loadWebUsers();
@@ -263,6 +266,7 @@ async function loadPunches() {
 const sectionByHash = {
     "#fitxatges": "punches",
     "#permisos-personal": "leaves",
+    "#comput-hores": "hours-report",
     "#treballadors": "employees",
     "#usuaris": "users",
     "#permisos": "leave-types",
@@ -287,6 +291,113 @@ for (const filterId of ["punch-employee", "date-from", "date-to"]) {
 }
 
 loadPunchFilters();
+
+
+function reportDuration(seconds) {
+    const total = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const remainingSeconds = total % 60;
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+function hoursReportParams() {
+    const params = new URLSearchParams();
+    const employeeId = document.getElementById("hours-report-employee").value;
+    const dateFrom = document.getElementById("hours-report-from").value;
+    const dateTo = document.getElementById("hours-report-to").value;
+    if (employeeId) params.set("employee_id", employeeId);
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    return params;
+}
+
+async function loadHoursReportFilters() {
+    const response = await fetch("/api/admin/employees");
+    const data = await response.json();
+    const select = document.getElementById("hours-report-employee");
+    for (const employee of data.employees) {
+        const option = document.createElement("option");
+        option.value = employee.id;
+        option.textContent = employee.name;
+        select.appendChild(option);
+    }
+    const now = new Date();
+    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    document.getElementById("hours-report-from").value =
+        `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    document.getElementById("hours-report-to").value = localDate;
+    if (location.hash === "#comput-hores") loadHoursReport();
+}
+
+function appendReportCell(row, text) {
+    const cell = document.createElement("td");
+    cell.textContent = text;
+    row.appendChild(cell);
+}
+
+async function loadHoursReport() {
+    const message = document.getElementById("hours-report-message");
+    const params = hoursReportParams();
+    const summaryBody = document.getElementById("hours-report-summary");
+    const daysBody = document.getElementById("hours-report-days");
+    const incidentsBody = document.getElementById("hours-report-incidents");
+    if (!params.get("date_from") || !params.get("date_to")) {
+        message.textContent = "Selecciona les dues dates per generar el còmput.";
+        return;
+    }
+    message.textContent = "Calculant...";
+    try {
+        const response = await fetch("/api/admin/hours-report?" + params.toString());
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "No s'ha pogut generar l'informe");
+        summaryBody.replaceChildren();
+        daysBody.replaceChildren();
+        incidentsBody.replaceChildren();
+        for (const employee of data.report.employees) {
+            const row = document.createElement("tr");
+            appendReportCell(row, employee.employee_name);
+            appendReportCell(row, reportDuration(employee.worked_seconds));
+            appendReportCell(row, reportDuration(employee.leave_seconds));
+            appendReportCell(row, reportDuration(employee.total_seconds));
+            appendReportCell(row, String(employee.incident_count));
+            summaryBody.appendChild(row);
+        }
+        for (const day of data.report.days) {
+            const row = document.createElement("tr");
+            appendReportCell(row, day.date);
+            appendReportCell(row, day.employee_name);
+            appendReportCell(row, reportDuration(day.worked_seconds));
+            appendReportCell(row, reportDuration(day.leave_seconds));
+            appendReportCell(row, reportDuration(day.total_seconds));
+            appendReportCell(row, day.leave_details.map(item =>
+                `${item.leave_type}: ${reportDuration(item.recognized_seconds)} (${item.status}, ${item.record_count})`
+            ).join("; "));
+            daysBody.appendChild(row);
+        }
+        for (const issue of data.report.incidents) {
+            const row = document.createElement("tr");
+            appendReportCell(row, issue.date || "—");
+            appendReportCell(row, issue.employee_name);
+            appendReportCell(row, issue.category);
+            appendReportCell(row, issue.description);
+            incidentsBody.appendChild(row);
+        }
+        message.textContent = `Informe generat: ${data.report.days.length} dies amb dades o incidències.`;
+    } catch (error) {
+        message.textContent = error.message;
+    }
+}
+
+document.getElementById("hours-report-run").addEventListener("click", loadHoursReport);
+for (const id of ["hours-report-employee", "hours-report-from", "hours-report-to"]) {
+    document.getElementById(id).addEventListener("change", loadHoursReport);
+}
+document.getElementById("hours-report-xlsx").addEventListener("click", () => {
+    const params = hoursReportParams();
+    window.location.href = "/api/admin/hours-report.xlsx?" + params.toString();
+});
+loadHoursReportFilters();
 
 
 document.getElementById("export-csv").addEventListener("click", () => {
@@ -1101,11 +1212,15 @@ document.getElementById("remove-logo").addEventListener("click", () => {
 loadLogoStatus();
 
  
-function leaveTypePayload(name, policy, maxValue, thresholdValue, active) {
+function leaveTypePayload(name, policy, maxValue, thresholdValue, guaranteedValue, active) {
     const max_minutes = maxValue.trim() === "" ? null : Number(maxValue);
     const auto_approve_minutes = policy === "threshold" && thresholdValue.trim() !== ""
         ? Number(thresholdValue) : null;
-    return {name: name.trim(), approval_policy: policy, max_minutes, auto_approve_minutes, active};
+    const guaranteed_daily_minutes = guaranteedValue.trim() === "" ? 0 : Number(guaranteedValue);
+    return {
+        name: name.trim(), approval_policy: policy, max_minutes, auto_approve_minutes,
+        guaranteed_daily_minutes, active
+    };
 }
 
 async function leaveTypeRequest(url, method, payload) {
@@ -1151,10 +1266,15 @@ async function loadLeaveTypes() {
             max.placeholder = "Durada de referència (min)";
             max.setAttribute("aria-label", "Durada de referència en minuts");
             max.value = item.max_minutes ?? "";
+            const guaranteed = document.createElement("input");
+            guaranteed.type = "number"; guaranteed.min = "0"; guaranteed.step = "1";
+            guaranteed.placeholder = "Temps garantit diari (min)";
+            guaranteed.setAttribute("aria-label", "Minuts garantits diaris");
+            guaranteed.value = item.guaranteed_daily_minutes ?? 0;
             const threshold = document.createElement("input");
             threshold.type = "number"; threshold.min = "1"; threshold.step = "1";
-            threshold.placeholder = "Límit automàtic (min)";
-            threshold.setAttribute("aria-label", "Límit automàtic en minuts");
+            threshold.placeholder = "Llindar automàtic diari (min)";
+            threshold.setAttribute("aria-label", "Llindar d'aprovació automàtica en minuts diaris");
             threshold.value = item.auto_approve_minutes ?? "";
             const syncThreshold = () => {
                 threshold.disabled = policy.value !== "threshold";
@@ -1180,7 +1300,10 @@ async function loadLeaveTypes() {
                 save.disabled = true;
                 try {
                     await leaveTypeRequest("/api/admin/leave-types/" + item.id, "PUT",
-                        leaveTypePayload(name.value, policy.value, max.value, threshold.value, active.checked));
+                        leaveTypePayload(
+                            name.value, policy.value, max.value, threshold.value,
+                            guaranteed.value, active.checked
+                        ));
                     status.textContent = "Desat";
                     await loadLeaveTypes();
                 } catch (error) { status.textContent = error.message; }
@@ -1197,6 +1320,7 @@ async function loadLeaveTypes() {
             name.classList.add("leave-type-name");
             policy.classList.add("leave-type-policy");
             max.classList.add("leave-type-minutes");
+            guaranteed.classList.add("leave-type-minutes");
             threshold.classList.add("leave-type-minutes");
             const handle = document.createElement("span");
             handle.className = "leave-type-drag-handle";
@@ -1245,7 +1369,7 @@ async function loadLeaveTypes() {
             actions.className = "leave-type-actions";
             actions.append(save, remove);
             status.className = "leave-type-status";
-            row.append(handle, name, policy, max, threshold, activeLabel, actions, status);
+            row.append(handle, name, policy, max, guaranteed, threshold, activeLabel, actions, status);
             container.appendChild(row);
         }
     } catch (error) {
@@ -1263,6 +1387,7 @@ if (newLeaveTypeForm) newLeaveTypeForm.addEventListener("submit", async event =>
             document.getElementById("leave-type-policy").value,
             document.getElementById("leave-type-max").value,
             document.getElementById("leave-type-threshold").value,
+            document.getElementById("leave-type-guaranteed").value,
             true
         ));
         newLeaveTypeForm.reset();
@@ -1294,6 +1419,7 @@ const supervisionLeaveMessage = document.getElementById("leave-supervision-messa
 async function loadSupervisionLeaves() {
     supervisionLeaveMessage.textContent = "Carregant permisos...";
     supervisionLeaveRows.replaceChildren();
+    let totalRows = 0;
     try {
         const response = await fetch("/api/admin/leaves?filter=" +
             encodeURIComponent(supervisionLeaveFilter.value));
@@ -1323,9 +1449,50 @@ async function loadSupervisionLeaves() {
             actionCell.appendChild(detailButton);
             row.appendChild(actionCell);
             supervisionLeaveRows.appendChild(row);
+            totalRows += 1;
         }
-        supervisionLeaveMessage.textContent = data.leaves.length ?
-            data.leaves.length + " permisos" : "No hi ha permisos en aquest filtre.";
+        if (supervisionLeaveFilter.value !== "regularization") {
+            const dailyResponse = await fetch("/api/admin/daily-leave-decisions?filter=" +
+                encodeURIComponent(supervisionLeaveFilter.value));
+            const dailyData = await dailyResponse.json();
+            if (!dailyResponse.ok || !dailyData.ok) {
+                throw new Error(dailyData.error || "Error de consulta de decisions diàries");
+            }
+            for (const decision of dailyData.daily_decisions) {
+                const row = document.createElement("tr");
+                const date = new Date(decision.local_date + "T12:00:00");
+                const state = decision.status === "pending" ? "Excés pendent" :
+                    decision.status === "approved" && decision.decision_source === "automatic"
+                        ? "Aprovat automàticament" :
+                    decision.status === "approved" && decision.decision_source === "system"
+                        ? "Sense excés pendent" :
+                    decision.status === "approved" ? "Excedent aprovat" : "Excedent rebutjat";
+                const cells = [
+                    Number.isNaN(date.getTime()) ? decision.local_date : date.toLocaleDateString("ca-ES"),
+                    decision.employee_name,
+                    decision.leave_type_name,
+                    "Acumulat diari · " + decision.leave_count + " intervals",
+                    state
+                ];
+                for (const value of cells) {
+                    const cell = document.createElement("td");
+                    cell.textContent = value ?? "";
+                    row.appendChild(cell);
+                }
+                const actionCell = document.createElement("td");
+                const detailButton = document.createElement("button");
+                detailButton.type = "button";
+                detailButton.textContent = "Revisar dia";
+                detailButton.addEventListener("click", () =>
+                    loadDailyLeaveDecisionDetail(decision.id));
+                actionCell.appendChild(detailButton);
+                row.appendChild(actionCell);
+                supervisionLeaveRows.appendChild(row);
+                totalRows += 1;
+            }
+        }
+        supervisionLeaveMessage.textContent = totalRows ?
+            totalRows + " permisos o decisions diàries" : "No hi ha permisos en aquest filtre.";
     } catch (error) {
         supervisionLeaveMessage.textContent = error.message;
     }
@@ -1611,7 +1778,7 @@ function appendLateArrivalRegularization(container, leave) {
 }
 
 function appendLeaveDecision(container, leave) {
-    if (leave.record_state !== "finished") return;
+    if (leave.record_state !== "finished" || leave.daily_decision_id) return;
     const heading = document.createElement("h3");
     heading.textContent = "Decisió del supervisor";
     const form = document.createElement("form");
@@ -1671,6 +1838,176 @@ function appendLeaveDecision(container, leave) {
         }
     });
     container.append(heading, form);
+}
+
+function dailySecondsLabel(seconds) {
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    return (minutes ? minutes + " min " : "") + remainder + " s";
+}
+
+async function loadDailyLeaveDecisionDetail(decisionId) {
+    supervisionLeaveDetail.classList.remove("hidden");
+    supervisionLeaveDetailContent.replaceChildren();
+    supervisionLeaveDetailMessage.textContent = "Carregant el còmput diari...";
+    try {
+        const response = await fetch(
+            "/api/admin/daily-leave-decisions/" + encodeURIComponent(decisionId)
+        );
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+            throw new Error(data.error || "No s'ha pogut carregar la decisió diària");
+        }
+        const decision = data.daily_decision;
+        const root = supervisionLeaveDetailContent;
+        root.classList.add("leave-detail-layout");
+        const header = document.createElement("header");
+        header.className = "leave-detail-header";
+        const identity = document.createElement("div");
+        const title = document.createElement("h3");
+        title.textContent = "Decisió diària de " + decision.leave_type_name;
+        const subtitle = document.createElement("p");
+        subtitle.textContent = decision.employee_name + " · " + decision.local_date;
+        identity.append(title, subtitle);
+        const status = document.createElement("span");
+        status.className = "leave-detail-status leave-detail-status-" + decision.status;
+        status.textContent = "Excedent: " + leaveLabel(decision.status);
+        header.append(identity, status);
+        root.appendChild(header);
+
+        const summary = document.createElement("section");
+        summary.className = "leave-detail-block";
+        summary.appendChild(document.createElement("h3")).textContent = "Còmput del dia";
+        appendLeaveDetailLine(summary, "Intervals", decision.leaves.length);
+        appendLeaveDetailLine(summary, "Total acumulat", dailySecondsLabel(decision.total_seconds));
+        appendLeaveDetailLine(summary, "Minuts garantits configurats",
+            decision.guaranteed_daily_minutes);
+        appendLeaveDetailLine(summary, "Temps garantit reconegut",
+            dailySecondsLabel(decision.guaranteed_seconds));
+        appendLeaveDetailLine(summary, "Excés subjecte a decisió",
+            dailySecondsLabel(decision.excess_seconds));
+        appendLeaveDetailLine(summary, "Temps reconegut actualment",
+            dailySecondsLabel(decision.recognized_seconds));
+        root.appendChild(summary);
+
+        const intervals = document.createElement("section");
+        intervals.className = "leave-detail-block";
+        intervals.appendChild(document.createElement("h3")).textContent = "Intervals inclosos";
+        for (const leave of decision.leaves) {
+            appendLeaveDetailLine(
+                intervals,
+                "Permís #" + leave.id,
+                leaveDate(leave.started_at) + " → " + leaveDate(leave.ended_at) +
+                    " · " + leaveLabel(leave.status) +
+                    (leave.requires_supervisor ? " · requereix supervisió" : "")
+            );
+        }
+        root.appendChild(intervals);
+
+        const actions = document.createElement("section");
+        actions.className = "leave-detail-block leave-detail-actions";
+        actions.appendChild(document.createElement("h3")).textContent = "Decisió única sobre l’excés";
+        if (decision.status === "approved" && decision.decision_source === "system") {
+            const note = document.createElement("p");
+            note.textContent = "No hi ha excés pendent de revisió; només computa el temps garantit.";
+            actions.appendChild(note);
+        } else {
+            const form = document.createElement("form");
+            const actionLabel = document.createElement("label");
+            actionLabel.textContent = "Decisió ";
+            const action = document.createElement("select");
+            action.required = true;
+            for (const [value, label] of [
+                ["", "Selecciona una decisió"],
+                ["approved", "Aprovar tot l’excés"],
+                ["rejected", "Rebutjar tot l’excés"]
+            ]) {
+                if (value && value === decision.status) continue;
+                const option = document.createElement("option");
+                option.value = value;
+                option.textContent = label;
+                action.appendChild(option);
+            }
+            actionLabel.appendChild(action);
+            const reasonLabel = document.createElement("label");
+            reasonLabel.textContent = "Motiu de la decisió ";
+            const reason = document.createElement("textarea");
+            reason.required = true;
+            reason.rows = 3;
+            reasonLabel.appendChild(reason);
+            const button = document.createElement("button");
+            button.type = "submit";
+            button.textContent = "Registrar decisió diària";
+            form.append(actionLabel, reasonLabel, button);
+            form.addEventListener("submit", async event => {
+                event.preventDefault();
+                if (!form.reportValidity() || !reason.value.trim() || !action.value) {
+                    supervisionLeaveDetailMessage.textContent =
+                        "Cal seleccionar una decisió i indicar-ne el motiu.";
+                    return;
+                }
+                button.disabled = true;
+                supervisionLeaveDetailMessage.textContent = "Desant decisió diària...";
+                try {
+                    const decisionResponse = await fetch(
+                        "/api/admin/daily-leave-decisions/" + decision.id + "/decision",
+                        {
+                            method: "POST",
+                            headers: adminHeaders({"Content-Type": "application/json"}),
+                            body: JSON.stringify({
+                                status: action.value, reason: reason.value.trim()
+                            })
+                        }
+                    );
+                    const result = await decisionResponse.json();
+                    if (!decisionResponse.ok || !result.ok) {
+                        throw new Error(result.error || "No s'ha pogut registrar la decisió");
+                    }
+                    await loadSupervisionLeaves();
+                    await loadDailyLeaveDecisionDetail(decision.id);
+                    supervisionLeaveDetailMessage.textContent =
+                        "Decisió diària registrada a l’historial.";
+                } catch (error) {
+                    supervisionLeaveDetailMessage.textContent = error.message;
+                    button.disabled = false;
+                }
+            });
+            actions.appendChild(form);
+        }
+        root.appendChild(actions);
+
+        const history = document.createElement("details");
+        history.className = "leave-detail-extra";
+        history.appendChild(document.createElement("summary")).textContent =
+            "Historial auditable de la decisió diària";
+        const historyBody = document.createElement("div");
+        historyBody.className = "leave-detail-extra-body";
+        const actionLabels = {
+            created: "Còmput diari creat",
+            total_changed: "Total diari actualitzat",
+            invalidated: "Decisió invalidada per canvi del total",
+            automatic_approval: "Aprovació automàtica"
+        };
+        for (const item of decision.decision_history) {
+            const transition = item.previous_status ?
+                leaveLabel(item.previous_status) + " → " + leaveLabel(item.new_status) :
+                leaveLabel(item.new_status);
+            appendLeaveDetailLine(
+                historyBody,
+                leaveDate(item.changed_at),
+                (actionLabels[item.action] || "Decisió del supervisor") + " · " +
+                    transition + " · " + dailySecondsLabel(item.total_seconds) + " · " +
+                    (item.reviewer_name || "Sistema") +
+                    (item.reason ? " · " + item.reason : "")
+            );
+        }
+        history.appendChild(historyBody);
+        root.appendChild(history);
+        supervisionLeaveDetailMessage.textContent = "";
+        supervisionLeaveDetail.scrollIntoView({behavior: "smooth", block: "start"});
+    } catch (error) {
+        supervisionLeaveDetailMessage.textContent = error.message;
+    }
 }
 
 async function loadSupervisionLeaveDetail(leaveId) {
