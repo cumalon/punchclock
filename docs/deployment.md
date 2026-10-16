@@ -18,7 +18,7 @@ The validated production layout uses the login-capable kiosk account `punch`, th
 
 ## Clean installation on a new Raspberry Pi
 
-The procedure below was validated on a second microSD card using Raspberry Pi OS Lite 32-bit (Debian 13 / Trixie), Python 3.13 and the public repository's initial release (`b1cd245`). The original reference terminal was not modified. Commands are shown for a separate system administrator account (for example, `joan`) and the dedicated kiosk account `punch`.
+An earlier version of this procedure was validated on a second microSD card using Raspberry Pi OS Lite 32-bit (Debian 13 / Trixie), Python 3.13 and the public repository's initial release (`b1cd245`). The current `main` branch includes later leave-management and hours-reporting features, so a fresh installation of current `main` still requires end-to-end acceptance testing. The original reference terminal was not modified. Commands are shown for a separate system administrator account (for example, `joan`) and the dedicated kiosk account `punch`.
 
 ### 1. Prepare Raspberry Pi OS
 
@@ -118,7 +118,7 @@ On a fresh installation, verify these operations before putting the terminal int
 5. Attach a USB drive, create a backup and verify it.
 6. On a test installation, change a test record, restore the verified backup and confirm the original data returns.
 
-These checks passed during the clean-install validation. They do not replace further hardware-specific or long-duration testing. Never test a restore against production data without an appropriate recovery plan.
+The original checks passed on the earlier clean-install validation. For the current release, also verify leave-type configuration, a leave interval, daily supervisor approval/rejection, and an hours report in both the web UI and XLSX export. They do not replace further hardware-specific or long-duration testing. Never test a restore against production data without an appropriate recovery plan. Keep the existing production SD card intact until the replacement SD has passed all checks and the verified backup has been restored and inspected.
 
 ### Installation notes
 
