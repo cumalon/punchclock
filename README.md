@@ -1,6 +1,6 @@
-# TimeClockPi
+# PunchClock
 
-TimeClockPi is a standalone, extensible time-clock system designed initially for Raspberry Pi-based touchscreen terminals.
+PunchClock (formerly TimeClockPi) is a standalone, extensible time-clock system designed initially for Raspberry Pi-based touchscreen terminals.
 
 ## Goals
 
@@ -20,6 +20,8 @@ TimeClockPi is a standalone, extensible time-clock system designed initially for
 - Employee management.
 - PIN identification module.
 - Clock-in / clock-out records.
+- Employee leave recording and supervisor decisions with guaranteed daily minutes.
+- Hours reports in the web administration, JSON and XLSX.
 - SQLite database.
 - Visual and audible confirmation.
 - Authenticated administrative web UI over Ethernet.
@@ -59,7 +61,7 @@ The initial deployment target is a Raspberry Pi 2 Model B with a Raspberry Pi Di
 
 The reference terminal is running the core v1 application on Raspberry Pi OS with Chromium kiosk mode, Waitress, Flask and SQLite. Automatic service/browser recovery, PIN identification, punch recording and incident confirmation have been validated on the terminal.
 
-The administration interface now includes authenticated administrator sessions, CSRF-protected mutations, employee management, punch filtering, CSV exports, audited punch correction, reversible incident review with history, terminal settings, self-service password changes and individual six-digit administrator PINs. Administrator sessions are revalidated against the current account state and are invalidated after credential changes or account deactivation. Privileged administrator-account creation, password reset and enable/disable operations remain intentionally local terminal commands rather than web functions.
+The administration interface now includes employee leave types, daily leave decisions and supervisor review, hours reporting with JSON/XLSX export, authenticated administrator sessions, CSRF-protected mutations, employee management, punch filtering, CSV exports, audited punch correction, reversible incident review with history, terminal settings, self-service password changes and individual six-digit administrator PINs. Administrator sessions are revalidated against the current account state and are invalidated after credential changes or account deactivation. Privileged administrator-account creation, password reset and enable/disable operations remain intentionally local terminal commands rather than web functions.
 
 The reference terminal also has a validated USB workflow for exporting punch data from the kiosk. Export requires an administrator PIN, uses a short-lived one-use authorization token, rate-limits failed PIN attempts, verifies the CSV after writing, safely ejects the device and records authorization/failure/completion events without storing the PIN. USB media are mounted with `nosuid,nodev,noexec`.
 
@@ -68,6 +70,10 @@ Backup creation, verification and restore/rollback are available through the aut
 The repository contains only the generic `static/default-logo.svg`. An administrator can upload or remove an installation-specific PNG or JPEG logo from Web Admin. The custom file is stored under `TIMECLOCKPI_DATA_DIR/branding/`, outside Git, so source updates and reinstalls do not replace installation branding.
 
 The initial production deployment now uses the `punch` account, a Git checkout at `/home/punch/timeclockpi`, persistent data under `/var/lib/timeclockpi`, bounded technical logging and versioned systemd/kiosk/USB deployment files. Full kiosk boot, startup-event recording, USB punch export and web backup/restore have been validated on the reference terminal. Remaining production-robustness work includes operational update/reinstall procedures, time validation, peripheral-error handling and evaluation of controlled local maintenance access.
+
+## Documentation
+
+Read the [documentation home](docs/index.md), [leave and hours reporting rules](docs/leave-configuration.md), [development guide](docs/development.md) and [operations guide](docs/operations.md). The repository and GitHub Pages documentation describe the same `main` branch; documentation changes should be reviewed before a new installation.
 
 ## Install on a new Raspberry Pi
 
