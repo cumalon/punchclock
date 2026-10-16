@@ -1,6 +1,6 @@
-# TimeClockPi — Developer documentation
+# PunchClock — Documentation
 
-TimeClockPi is an offline-first time-clock application for Raspberry Pi touchscreen terminals.
+PunchClock (formerly TimeClockPi) is an offline-first time-clock application for Raspberry Pi touchscreen terminals.
 
 This documentation describes the current implementation, development workflow, deployment on the reference terminal, and the decisions already validated on hardware.
 
@@ -13,6 +13,8 @@ Implemented and validated:
 - PIN identification with short-lived authorization tokens.
 - Clock-in and clock-out, including explicit confirmation of anomalous sequences.
 - Employee administration and terminal settings.
+- Employee leave types, guaranteed daily minutes, daily aggregation, supervisor decisions and audit history.
+- Hours reporting in the web administration, JSON API and XLSX export (summary, daily detail and incidents).
 - Punch and terminal-event history plus CSV exports.
 - Automatic boot and recovery of backend and kiosk.
 - A terminal startup event recorded once per OS boot.
@@ -22,7 +24,7 @@ Implemented and validated:
 - Administrator sessions invalidated when the account is disabled or its credentials change.
 - Production layout using `punch`, `/home/punch/timeclockpi` and `/var/lib/timeclockpi`, with persistent bounded technical logging.
 
-For a new terminal, follow the [clean installation procedure](deployment.md#clean-installation-on-a-new-raspberry-pi). See also [Architecture](architecture.md), [Development](development.md), [Deployment](deployment.md), [Operations](operations.md), and the [leave configuration design](leave-configuration.md).
+For a new terminal, follow the [clean installation procedure](deployment.md#clean-installation-on-a-new-raspberry-pi). See also [Architecture](architecture.md), [Development](development.md), [Deployment](deployment.md), [Operations](operations.md), and the [leave and hours reporting rules](leave-configuration.md).
 
 ## v1 principles
 
