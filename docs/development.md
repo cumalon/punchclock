@@ -24,13 +24,15 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The test suite covers employee lifecycle and validation, PIN identification, token authorization, forged employee-ID rejection, normal and incident punch sequences, history filters, CSV export, settings, public kiosk settings, terminal events, administrator authentication, CSRF protection, password management, audited punch corrections, incident review/reopening and local administrator-account controls.
+The test suite also covers leave types, daily leave decisions, guaranteed minutes, hours reporting and XLSX export. It covers employee lifecycle and validation, PIN identification, token authorization, forged employee-ID rejection, normal and incident punch sequences, history filters, CSV export, settings, public kiosk settings, terminal events, administrator authentication, CSRF protection, password management, audited punch corrections, incident review/reopening and local administrator-account controls.
 
 The suite should be run after each change with `pytest -q`. The exact test count is intentionally not documented here because it changes as coverage grows.
 
 ## Running the application manually
 
-TimeClockPi can be run without the production systemd services while developing.
+PunchClock can be run without the production systemd services while developing.
+
+For an isolated development database, use a directory outside the production data path (for example, `./data` in a local checkout). Do not point development at `/var/lib/timeclockpi`.
 
 Activate the virtual environment from the repository root:
 
