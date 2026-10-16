@@ -1,7 +1,7 @@
-site_name: TimeClockPi
-site_description: Developer documentation for TimeClockPi
-repo_url: https://github.com/cumalon/timeclockpi
-repo_name: cumalon/timeclockpi
+site_name: PunchClock
+site_description: Installation, operations and developer documentation for PunchClock
+repo_url: https://github.com/cumalon/punchclock
+repo_name: cumalon/punchclock
 
 theme:
   name: mkdocs
@@ -12,3 +12,4 @@ nav:
   - Development: development.md
   - Deployment: deployment.md
   - Operations: operations.md
+  - Leave and hours reporting: leave-configuration.md
