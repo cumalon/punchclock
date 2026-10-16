@@ -9,6 +9,7 @@ theme:
 nav:
   - Home: index.md
   - Architecture: architecture.md
+  - Time audit: time-audit.md
   - Development: development.md
   - Deployment: deployment.md
   - Operations: operations.md
