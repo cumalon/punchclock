@@ -86,9 +86,13 @@ The backend is supervised by systemd. Automatic restart remains enabled for tran
 
 The validated deployment uses SQLite `journal_mode=delete` with `synchronous=FULL`. The operating system uses an ext4 root filesystem with journaling and boot-time filesystem repair. The system journal remains volatile by distribution policy. TimeClockPi has separate bounded persistent technical logging under `/var/log/timeclockpi`, with rotation and compression, rather than enabling persistent storage for the complete system journal.
 
-The main tables are employees, credentials, punches, terminal events, settings, administrator accounts, punch corrections and incident-review history.
+The main tables include employees, credentials, punches, terminal events, settings, administrator accounts, punch corrections, incident-review history, leave types, employee leave intervals, daily leave decisions and their audit history. See [leave and hours reporting rules](leave-configuration.md) for recognition, aggregation and legacy compatibility.
 
 Custom branding follows the same separation between source and installation data. The generic logo is versioned at `static/default-logo.svg`; an optional PNG/JPEG custom logo is stored at `$TIMECLOCKPI_DATA_DIR/branding/custom-logo`. `timeclock/branding.py` validates uploaded image structure and size, avoids following symlinks when reading the live logo, and uses same-directory temporary files, `fsync` and atomic replacement for durable updates.
+
+## Leave and hours reporting
+
+Employee leave intervals are stored separately from punches. New same-day leave intervals can be aggregated into daily decisions by employee, leave type and local date, with configured guaranteed minutes and an append-only decision history. Historical leave records predating daily aggregation retain their legacy decision semantics. The hours-report engine produces JSON and XLSX views of worked time, recognized leave and incidents without modifying source records. See [leave and hours reporting rules](leave-configuration.md) for exact inclusion and exclusion rules.
 
 ## Network boundary
 
