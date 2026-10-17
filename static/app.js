@@ -136,6 +136,8 @@ function showPinScreen() {
     leaveContext = null;
     selectedLeaveDirection = null;
     leaveOptionsSelect.replaceChildren(new Option("Selecciona un permís", ""));
+    document.getElementById("frequent-leave-options").replaceChildren();
+    document.getElementById("frequent-leave-options").classList.add("hidden");
     leaveOptionsSelect.disabled = true;
     continueLeaveOptions.disabled = true;
     pinScreen.classList.remove("hidden");
@@ -432,6 +434,8 @@ async function showLeaveOptions() {
     punchScreen.classList.add("hidden");
     leaveScreen.classList.remove("hidden");
     leaveOptionsSelect.replaceChildren(new Option("Selecciona un permís", ""));
+    document.getElementById("frequent-leave-options").replaceChildren();
+    document.getElementById("frequent-leave-options").classList.add("hidden");
     leaveOptionsSelect.disabled = true;
     continueLeaveOptions.disabled = true;
     leaveOptionsMessage.textContent = "Carregant permisos...";
@@ -462,6 +466,21 @@ async function showLeaveOptions() {
             leaveOptionsSelect.add(new Option(kind.name, String(kind.id)));
         }
         leaveOptionsSelect.disabled = false;
+        const frequentContainer = document.getElementById("frequent-leave-options");
+        for (const id of (data.frequent_leave_type_ids || []).slice(0, 2)) {
+            const kind = data.leave_types.find(item => item.id === id);
+            if (!kind) continue;
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = kind.name;
+            button.addEventListener("click", () => {
+                leaveOptionsSelect.value = String(kind.id);
+                continueLeaveOptions.disabled = false;
+                continueLeaveOptions.click();
+            });
+            frequentContainer.appendChild(button);
+        }
+        frequentContainer.classList.toggle("hidden", !frequentContainer.childElementCount);
     } catch {
         leaveOptionsMessage.textContent = "Error de connexió";
     }
