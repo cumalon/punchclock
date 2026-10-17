@@ -1159,6 +1159,24 @@ def list_active_leave_types():
     return [dict(row) for row in rows]
 
 
+def list_frequent_leave_types(employee_id, days=30, now=None):
+    """Return the two most-used active leave types for an employee."""
+    now = now or datetime.now(LOCAL_TIMEZONE)
+    cutoff = (now - timedelta(days=days)).isoformat()
+    with get_connection() as db:
+        rows = db.execute("""
+            SELECT lt.id
+            FROM employee_leave el
+            JOIN leave_type lt ON lt.id = el.leave_type_id
+            WHERE el.employee_id = ? AND lt.active = 1
+              AND julianday(el.started_at) BETWEEN julianday(?) AND julianday(?)
+            GROUP BY lt.id
+            ORDER BY COUNT(*) DESC, MAX(julianday(el.started_at)) DESC, lt.id
+            LIMIT 2
+        """, (employee_id, cutoff, now.isoformat())).fetchall()
+    return [row["id"] for row in rows]
+
+
 def get_employee_leave_context(employee_id, now=None):
     """Estat de fitxatge i permís per decidir la següent acció al terminal."""
     now = now or datetime.now(LOCAL_TIMEZONE)
