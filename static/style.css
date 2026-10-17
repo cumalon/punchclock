@@ -364,6 +364,13 @@ p { font-size: 1.2rem; }
         border-radius: 20px;
     }
 
+    /* Keep the punch card, including its rounded bottom corners, on screen. */
+    #punch-screen {
+        max-height: calc(100dvh - 205px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
     h1 {
         font-size: 1.8rem;
     }
