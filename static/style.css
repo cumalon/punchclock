@@ -364,11 +364,35 @@ p { font-size: 1.2rem; }
         border-radius: 20px;
     }
 
-    /* Keep the punch card, including its rounded bottom corners, on screen. */
+    /* Fit the entire punch card on the portrait terminal without a scrollbar. */
     #punch-screen {
-        max-height: calc(100dvh - 205px);
-        overflow-y: auto;
-        overscroll-behavior: contain;
+        padding-top: 14px;
+        padding-bottom: 12px;
+    }
+    #punch-screen .punch-actions {
+        margin-top: 14px;
+        gap: 8px;
+    }
+    #punch-screen .punch-actions button {
+        min-height: 62px;
+    }
+    #punch-screen .secondary-action {
+        min-height: 46px;
+        margin-top: 8px;
+    }
+    #punch-screen #punch-message {
+        min-height: 0;
+        margin-top: 6px;
+    }
+    #punch-screen #incident-confirmation {
+        padding-top: 6px;
+    }
+    #punch-screen #incident-message {
+        margin: 8px 0;
+        font-size: 1.05rem;
+    }
+    #punch-screen #incident-confirmation button {
+        min-height: 48px;
     }
 
     h1 {
