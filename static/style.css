@@ -173,8 +173,8 @@ p { font-size: 1.2rem; }
 }
 
 #incident-confirmation {
-    margin-top: 14px;
-    padding-top: 14px;
+    margin-top: 8px;
+    padding-top: 8px;
     border-top: 1px solid var(--line);
 }
 
