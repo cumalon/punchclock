@@ -527,3 +527,8 @@ p { font-size: 1.2rem; }
     font-weight: 700;
 }
 #ordinary-leave-now:disabled { opacity: .4; }
+
+/* Make the leave type immediately recognizable on return screens. */
+.leave-type-emphasis { font-size: 1.55rem; font-weight: 800; line-height: 1.2; margin: 16px 0 10px; overflow-wrap: anywhere; }
+#ordinary-leave-return-message { margin: 10px 0 14px; }
+#leave-confirm-hint { margin: 12px 0; }
