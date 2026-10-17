@@ -155,10 +155,6 @@ p { font-size: 1.2rem; }
     font-size: 1.25rem;
 }
 
-.punch-actions button[data-punch="entrada"] {
-    background: var(--accent);
-    border-color: var(--accent-strong);
-}
 
 .secondary-action {
     width: 100%;
