@@ -440,6 +440,10 @@ p { font-size: 1.2rem; }
 }
 
 /* Compact touch-friendly leave selection */
+.frequent-leave-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.frequent-leave-options.hidden { display: none; }
+.frequent-leave-options button { min-height: 64px; padding: 8px; border: 1px solid var(--accent-strong); border-radius: 11px; background: #fff7df; color: var(--ink); font-size: 1.05rem; font-weight: 700; overflow-wrap: anywhere; touch-action: manipulation; }
+
 #leave-screen { max-height: calc(100dvh - 155px); overflow-y: auto; }
 .leave-select-label { display: block; margin: 18px 0 8px; font-weight: 700; text-align: left; }
 #leave-options-select { display: block; width: 100%; min-height: 56px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 11px; background: white; color: var(--ink); font-size: 1.1rem; }
