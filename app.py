@@ -1438,7 +1438,8 @@ def terminal_leave_options():
     context = database.get_employee_leave_context(identification["employee_id"])
     if context is None:
         return jsonify({"ok": False, "error": "Empleat no vàlid"}), 404
-    return jsonify({"ok": True, "leave_types": database.list_active_leave_types(), "context": context})
+    return jsonify({"ok": True, "leave_types": database.list_active_leave_types(), "context": context,
+                    "frequent_leave_type_ids": database.list_frequent_leave_types(identification["employee_id"])})
 
 
 @app.post("/api/leave/start")
