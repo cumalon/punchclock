@@ -219,8 +219,8 @@ async function createPunch(type, confirmIncident = false, returnChoice = null) {
                 pendingPunchType = type;
                 pendingReturnChoice = null;
                 const leaveName = data.leave && (data.leave.leave_type_name || data.leave.name) || "permís";
-                document.getElementById("ordinary-leave-return-message").textContent =
-                    "Tens un permís obert: " + leaveName + ". Quan has tornat?";
+                document.getElementById("ordinary-leave-return-name").textContent = leaveName;
+                document.getElementById("ordinary-leave-return-message").textContent = "Quan has tornat?";
                 document.getElementById("ordinary-leave-now").disabled = type !== "entrada";
                 punchScreen.classList.add("hidden");
                 document.getElementById("ordinary-leave-return-screen").classList.remove("hidden");
@@ -588,7 +588,11 @@ document.getElementById("leave-register").addEventListener("click", async () => 
 });
 document.getElementById("leave-confirm-back").addEventListener("click", () => {
     leaveConfirmScreen.classList.add("hidden");
-    leaveScreen.classList.remove("hidden");
+    if (leaveContext && leaveContext.open_leave) {
+        showPinScreen();
+    } else {
+        leaveScreen.classList.remove("hidden");
+    }
 });
 
 let leaveFinishBusy = false;
@@ -597,7 +601,7 @@ document.getElementById("finish-leave-choice").addEventListener("click", () => {
     document.getElementById("leave-confirm-name").textContent =
         leaveContext.open_leave.leave_type_name;
     document.getElementById("leave-confirm-hint").textContent =
-        "El retorn finalitzarà el permís i registrarà una ENTRADA amb l'hora actual.";
+        "Es registrarà una ENTRADA amb l'hora actual.";
     document.getElementById("leave-direction-actions").classList.add("hidden");
     document.getElementById("leave-register").classList.add("hidden");
     document.getElementById("leave-finish-register").classList.remove("hidden");
@@ -605,7 +609,7 @@ document.getElementById("finish-leave-choice").addEventListener("click", () => {
     document.getElementById("leave-finish-register").dataset.confirmIncident = "false";
     document.getElementById("leave-finish-register").textContent = "CONFIRMAR RETORN";
     document.getElementById("leave-confirm-message").textContent =
-        "Prem CONFIRMAR RETORN per registrar l'entrada.";
+        "Confirma que has tornat.";
     leaveScreen.classList.add("hidden");
     leaveConfirmScreen.classList.remove("hidden");
 });
