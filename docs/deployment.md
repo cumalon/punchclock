@@ -128,7 +128,11 @@ The original checks passed on the earlier clean-install validation. For the curr
 - The system is designed to work offline for employee punches, but downloading packages and cloning the repository during initial installation require network access.
 - Plain HTTP is used on the reference terminal. Restrict administrative access to a trusted network.
 
-## Optional Wi-Fi access point\n\nThe standard installer does not set up Wi-Fi AP services. A manually configured local Wi-Fi access point for Web Admin has been validated using hostapd, dnsmasq, NetworkManager interface separation and a static-IP systemd service. See [Optional Wi-Fi access point](wifi-access-point.md) for prerequisites, security considerations and verification.\n\n## Backend systemd service
+## Optional Wi-Fi access point
+
+The standard installer does not set up Wi-Fi AP services. A manually configured local Wi-Fi access point for Web Admin has been validated using hostapd, dnsmasq, NetworkManager interface separation and a static-IP systemd service. See [Optional Wi-Fi access point](wifi-access-point.md) for prerequisites, security considerations and verification.
+
+## Backend systemd service
 
 `/etc/systemd/system/timeclockpi.service`:
 
