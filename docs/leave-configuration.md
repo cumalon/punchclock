@@ -1,160 +1,62 @@
-# Leave configuration design
+# Leave management and hours reporting
 
-## Sprint A
+This guide explains how an administrator or supervisor can configure leave types, review absences and interpret hours reports on a PunchClock terminal. All dates and daily calculations use the terminal's configured local timezone (in the reference installation, `Europe/Madrid`).
 
-Leave-type configuration is stored in `leave_type`. The existing `name`,
-`active`, `sort_order`, `approval_policy`, `max_minutes`, and
-`auto_approve_minutes` fields retain their current meanings. In particular,
-`max_minutes` is an indicative duration and does not limit a recorded leave.
-`auto_approve_minutes` is the threshold for the `threshold` approval policy.
-It is evaluated against the accumulated daily total. The independent
-`guaranteed_daily_minutes` value accepts zero or a positive integer.
+## Configure leave types
 
-The admin API at `/api/admin/leave-types` creates and updates this
-configuration. The same fields are returned by the active leave-type API used
-by the terminal.
+Leave types are maintained in Web Admin. Each type has a name, an active/inactive state, a display order and an approval policy. Two duration settings have different purposes:
 
-The SQLite migration adds `guaranteed_daily_minutes` with a default of zero.
-It is idempotent and does not change existing leave records, their statuses,
-individual decision history, configured order, or indicative durations.
-Existing permission durations and decisions are not retrospectively
-reinterpreted or automatically recognized as computable time.
+- **Indicative duration (`max_minutes`)**: guidance for the expected duration of a leave; it does **not** prevent longer absences from being recorded.
+- **Guaranteed daily minutes (`guaranteed_daily_minutes`)**: minutes that can count toward recognized time even while a daily leave group is pending or rejected. Set to zero if no time is guaranteed.
+- **Automatic approval threshold (`auto_approve_minutes`)**: for the threshold-based policy, the maximum **daily accumulated** duration eligible for automatic approval. It is not a per-interval allowance.
 
-## Sprint B: daily aggregation and decisions
+Available approval behaviors include automatic approval, threshold-based approval and manual review. Under a threshold policy, the daily total is approved automatically when it is within the configured threshold; otherwise any excess requires a supervisor's decision. Some records may still require review because of an incident.
 
-Individual `employee_leave` records remain the source of the actual leave
-intervals. A `daily_leave_decision` is keyed by employee, leave type, and local
-calendar date in `Europe/Madrid`, with append-only
-`daily_leave_decision_history`. The decision applies to the complete daily
-excess, never an individual interval or a partial number of minutes.
+**Example:** A type named `Esmorzar` has 30 guaranteed minutes and a 30-minute automatic threshold. Four intervals of 10, 12, 8 and 7 minutes on the same day total 37 minutes. The first 30 minutes are guaranteed; the additional 7 minutes count as recognized time only if the supervisor approves the daily excess.
 
-For total duration `D` and guaranteed allowance `G`, pending or rejected groups
-recognize `min(D, G)`; approved groups recognize all of `D`. A threshold policy
-automatically approves the daily total when it does not exceed the configured
-threshold. If an excess remains and the total exceeds that threshold, the group
-stays pending unless a supervisor approves or rejects the entire excess.
-Automatic policies approve the full total, unless a record requires supervisor
-review. A group with no excess and no unresolved incident needs no supervisor
-decision. Manual decisions require a reason and record the reviewer.
+## Review and approve leave
 
-If the total changes after a supervisor decision, that decision remains in the
-history and the group returns to pending review. Automatic approvals, total
-changes, invalidations, and supervisor decisions are also recorded with the
-total and configuration snapshot used at the time.
+For newly recorded, completed same-day absences, PunchClock groups intervals by **employee, leave type and local calendar day**. Supervisors review these daily groups in Web Admin rather than deciding each interval separately.
 
-Each daily group keeps the approval policy, automatic threshold, and guaranteed
-minutes that were configured when its first interval was added. Later edits to
-the leave type apply only to daily groups created afterward; they do not alter
-an existing group's snapshot or recognition rules. Additional intervals and
-regularizations for an existing group continue to use its original snapshot.
+- **Approved:** the full eligible daily leave duration is recognized.
+- **Pending or rejected:** only up to the group's guaranteed daily minutes are recognized.
+- **No excess and no unresolved incident:** no supervisor decision is needed.
+- **Manual decision:** the supervisor approves or rejects the entire daily excess, provides a reason and leaves an auditable record. A partial approval of only some excess minutes is not supported.
 
-### Migration and historical compatibility
+A later interval or correction can change the daily total. If that happens after a supervisor's decision, the previous decision remains in the history and the group returns to pending review. The group's policy, threshold and guaranteed minutes are retained from when its first interval was created. Changing a leave type affects future daily groups, not existing ones.
 
-The idempotent migration adds nullable `employee_leave.daily_decision_id` and
-the daily decision and history tables. Existing employee leave rows and
-individual decision histories are left untouched and unlinked. They continue
-to use the legacy individual-review workflow and are not silently imported
-into a daily total or reinterpreted under the new guarantee and threshold
-rules. New completed same-day records are linked to the daily group; their
-individual statuses mirror the group status for compatibility, while the
-daily history is authoritative for grouped decisions.
+The supervisor view is backed by `/api/admin/daily-leave-decisions`. Access is subject to the Web Admin roles and authentication controls.
 
-If historical and new records of the same type occur on the same local date,
-only records explicitly linked to the new daily group contribute to its total
-and guaranteed-minute allowance. Historical records remain separately
-individually approved/rejected and are never assigned a share of the new daily
-guarantee. Future hour reports must keep the two sets distinct: they must not
-apply the group guarantee to legacy records or allow a legacy status to alter
-the new group's decision. No hourly-report engine is added in Sprint B.
+## Understand the hours report
 
-Intervals that cross a local calendar date are not assigned to a daily group.
-They remain pending and require supervisor attention rather than being
-silently attributed to one day. Same-day regularizations are added to the
-daily group when completed; if they change a previously reviewed total, the
-decision is invalidated as above.
+The hours report is available in Web Admin to administrators and supervisors. Choose an inclusive **start date** and **end date**; you can optionally restrict the results to one employee. The web report and Excel export use the same calculation rules. The Excel workbook contains:
 
-The supervisor API exposes daily groups through
-`/api/admin/daily-leave-decisions`, with detail and decision endpoints below
-that path. Linked intervals cannot be decided through the legacy individual
-decision endpoint. Admin and supervisor authentication, roles, and CSRF
-protection use the existing web-admin controls.
+- **Resum:** totals by employee.
+- **Detall diari:** daily worked time, recognized leave, total time and leave details/status.
+- **Incidències:** incomplete, excluded or problematic records and punch incidents.
 
-### STOP B manual validation
+The web interface displays time as hours, minutes and seconds. The Excel workbook represents hours as decimal values.
 
-1. Configure an `Esmorzar` type with 30 guaranteed minutes and a 30-minute
-   automatic threshold.
-2. Register intervals of 10, 12, 8, and 7 minutes on one local day. The
-   supervisor approval filter should show one daily row with 37 total minutes
-   and 30 guaranteed minutes.
-3. Reject the excess and verify 30 recognized minutes; change the decision to
-   approved and verify all 37 minutes are recognized, with both decisions in
-   the audit history.
-4. Add another interval after approval. Verify the daily row returns to pending
-   and the previous decision remains in history.
-5. Configure a manual type with zero guaranteed minutes. Verify a pending
-   group recognizes zero until the supervisor approves it.
+### Worked time
 
-Targeted automated tests:
+A valid work interval consists of an `entrada` followed by a `sortida` on the **same local date**. Unmatched punches, non-positive intervals and pairs with unresolved punch incidents are excluded from worked time and shown as incidents where applicable. A reviewed incident can contribute to worked time when its punches form a valid pair. Overnight shifts are not automatically paired.
 
-```sh
-python -m pytest tests/test_daily_leave_decisions.py tests/test_leave_*.py -q
-```
+### Recognized leave and overlaps
 
-Sprint B review-correction result:
-`python -m pytest tests/test_daily_leave_decisions.py tests/test_leave_*.py -q`
-— **135 passed**.
+For grouped daily leave, approved groups can count their full eligible duration; pending or rejected groups count no more than the guaranteed daily allowance. The guaranteed allowance is applied to the day's accumulated eligible leave, **not separately to every interval**.
 
-## Sprint C: hours reports
+A valid leave interval represents an absence from work even when approval is pending or rejected. Its time is removed from worked time; only the approved or guaranteed portion is added back as recognized leave. Consequently, an unrecognized absence is not counted as work. Overlapping leave intervals are deduplicated, and overlapping leave and work are not counted twice.
 
-The `/api/admin/hours-report` JSON view and `/api/admin/hours-report.xlsx`
-export use the same report engine. Both accept required `date_from` and
-`date_to` values in `YYYY-MM-DD` format (inclusive) and an optional
-`employee_id`. The report UI is available to administrators and supervisors,
-consistent with their existing access to punch records. The existing CSV
-exports remain unchanged.
+Incomplete, malformed and cross-midnight leave intervals are excluded from recognized time and identified as incidents. Cross-midnight leave needs supervisor attention rather than being assigned automatically to one day.
 
-The XLSX workbook contains three sheets: `Resum` (employee totals),
-`Detall diari` (daily work, recognized leave, total, and leave status/details),
-and `Incidències` (incomplete or excluded records and punch incidents). Hours
-are represented as decimal hours in the workbook; the web view displays
-`hours:minutes:seconds`.
+## Older records and configuration changes
 
-Punches are paired as an `entrada` followed by a `sortida` on the same
-`Europe/Madrid` calendar date. Unmatched punches, non-positive pairs, and
-pairs containing an unresolved punch incident do not contribute work time.
-Reviewed incident punches can contribute when they form a valid pair, and
-reviewed incidents remain visible in the report. The report never pairs
-overnight shifts; the unmatched endpoints appear as incidents instead.
+Older leave records created before daily grouping remain subject to their original **individual approval decisions**. They count as recognized leave only when individually approved. They are not silently transferred into new daily groups or granted the newer daily allowance.
 
-For new daily groups, an approved group may recognize its full eligible
-interval duration; a pending or rejected group recognizes at most its
-creation-time guaranteed minutes. Legacy individual leave records contribute
-only when individually approved; pending or rejected historical records are
-not retroactively recognized. Incomplete, malformed, and cross-midnight leave
-records do not contribute time and are listed as incidents. Overlapping leave
-intervals are deduplicated, with pending/rejected guaranteed time allocated
-chronologically within the group. Every valid, same-day leave interval is
-treated as physical absence and removed from worked time, even when that leave
-is pending/rejected and its excess is not recognized. Only the guaranteed
-portion (or the full approved duration) is added as recognized leave, so an
-unrecognized absence cannot be misclassified as work. Overlaps between leave
-types or between leave and work are counted only once. These reporting rules do
-not modify punch, leave, or decision-history records.
+If older and newer records of the same type exist on the same date, PunchClock keeps their approval and recognition rules separate. Changing the current leave-type configuration does not retroactively recalculate older decisions or existing daily groups.
 
-Targeted Sprint C tests:
+## Operational checks
 
-```sh
-python -m pytest tests/test_hours_report.py -q
-```
+When checking a discrepancy in reported hours, verify the date range, the employee, the sequence of entry/exit punches, unresolved incidents, any overlapping leave intervals and the daily leave approval status. For an absence exceeding guaranteed minutes, check whether the supervisor approved the excess. Review the **Incidències** worksheet before treating a report as complete.
 
-The XLSX dependency is pinned to `openpyxl==3.1.5`.
-
-The functional design left the precise XLSX columns and treatment of
-incomplete/incidence cases open. Sprint C uses the conservative rules above:
-uncertain work time is excluded rather than estimated, while valid guaranteed
-leave remains computable under the daily decision rules.
-
-Whether a justification is required or optional, and its format and behavior,
-remain pending functional definition. The current implementation has no
-justification configuration or field; this item is explicitly excluded from
-Sprints A, B, and C.
+Web Admin currently does not provide a configurable justification requirement or a dedicated justification field for these leave decisions. Do not assume that supporting documents are collected automatically.
