@@ -157,7 +157,7 @@ The incident confirmation explicitly identifies the situation as a punch inciden
 
 Production robustness is the current phase. The deployment now uses the `punch` account and production paths consistently across the backend, startup event, USB and restore helpers. Controlled reboot/shutdown and emergency local maintenance access remain production-robustness topics. Hardware identification and auxiliary hardware are postponed until after the initial production deployment.
 
-Future work may include Wi-Fi, synchronization and multiple terminals.
+An optional Wi-Fi access point for Web Admin has been validated through manual configuration; see [Optional Wi-Fi access point](wifi-access-point.md). Automated AP installation remains unimplemented. Future work may include synchronization and multiple terminals.
 
 ## Custom logo
 
