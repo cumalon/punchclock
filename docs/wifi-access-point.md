@@ -9,7 +9,7 @@ A reference terminal was manually configured and tested with the following compo
 - **hostapd** creates the WPA2-protected Wi-Fi access point on `wlan0`.
 - **dnsmasq** provides DHCP addresses to Wi-Fi clients (DNS service is not required for DHCP).
 - **NetworkManager** continues managing the wired `eth0` connection but does not manage `wlan0`.
-- A **systemd oneshot service** assigns the static address `192.168.50.1/24` to `wlan0` at boot, before hostapd and dnsmasq.
+- A **systemd oneshot service** assigns the static address `10.77.0.1/24` to `wlan0` at boot, before hostapd and dnsmasq.
 - **Avahi/mDNS** allows compatible clients to resolve the terminal's `.local` hostname.
 
 On the tested terminal, the SSID was `PunchClock-Menjador`, the access point used 2.4 GHz channel 6 with regulatory country `ES`, and the Web Admin was accessible at:
