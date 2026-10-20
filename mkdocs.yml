@@ -11,5 +11,6 @@ nav:
   - Architecture: architecture.md
   - Development: development.md
   - Deployment: deployment.md
-  - Operations: operations.md\n  - Optional Wi-Fi access point: wifi-access-point.md
+  - Operations: operations.md
+  - Optional Wi-Fi access point: wifi-access-point.md
   - Leave and hours reporting: leave-configuration.md
