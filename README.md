@@ -75,6 +75,8 @@ The initial production deployment now uses the `punch` account, a Git checkout a
 
 Read the [documentation home](docs/index.md), [leave and hours reporting rules](docs/leave-configuration.md), [development guide](docs/development.md) and [operations guide](docs/operations.md). The repository and GitHub Pages documentation describe the same `main` branch; documentation changes should be reviewed before a new installation.
 
-An [optional manually configured Wi-Fi access point](docs/wifi-access-point.md) has been validated for local Web Admin access. It requires additional packages and manual system configuration; it is not included in the standard installer.\n\n## Install on a new Raspberry Pi
+An [optional manually configured Wi-Fi access point](docs/wifi-access-point.md) has been validated for local Web Admin access. It requires additional packages and manual system configuration; it is not included in the standard installer.
+
+## Install on a new Raspberry Pi
 
 For a clean installation, including preparation of the `punch` kiosk account, the required checkout path, installer execution from a system administrator account, and first web administrator creation, follow the [clean installation guide](docs/deployment.md#clean-installation-on-a-new-raspberry-pi). The validated reference deployment uses fixed paths and Raspberry Pi OS Lite (32-bit).
