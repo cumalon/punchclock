@@ -36,11 +36,11 @@ The core owns employees, credentials, clock events, configuration, persistence a
 
 Employee identity is independent from credentials. Changing a PIN must not change an employee's identity or history. Clock events record the identification method used.
 
-The touchscreen UI and the administrative web UI use the same backend/API. Network interfaces are transport details: Ethernet is used in v1; Wi-Fi can be configured later without changing application semantics.
+The touchscreen UI and the administrative web UI use the same backend/API. Network interfaces are transport details: Ethernet is used in v1; an optional, manually configured Wi-Fi access point has been validated for Web Admin without changing application semantics.
 
 ## Future capabilities (not implemented in v1)
 
-Possible future modules or services include RFID, fingerprint identification, Wi-Fi configuration, automatic synchronization, multiple terminals and a central server. No placeholder directories are created for unimplemented features.
+Possible future modules or services include RFID, fingerprint identification, automated Wi-Fi configuration, automatic synchronization, multiple terminals and a central server. No placeholder directories are created for unimplemented features.
 
 ## Design principles
 
@@ -75,6 +75,6 @@ The initial production deployment now uses the `punch` account, a Git checkout a
 
 Read the [documentation home](docs/index.md), [leave and hours reporting rules](docs/leave-configuration.md), [development guide](docs/development.md) and [operations guide](docs/operations.md). The repository and GitHub Pages documentation describe the same `main` branch; documentation changes should be reviewed before a new installation.
 
-## Install on a new Raspberry Pi
+An [optional manually configured Wi-Fi access point](docs/wifi-access-point.md) has been validated for local Web Admin access. It requires additional packages and manual system configuration; it is not included in the standard installer.\n\n## Install on a new Raspberry Pi
 
 For a clean installation, including preparation of the `punch` kiosk account, the required checkout path, installer execution from a system administrator account, and first web administrator creation, follow the [clean installation guide](docs/deployment.md#clean-installation-on-a-new-raspberry-pi). The validated reference deployment uses fixed paths and Raspberry Pi OS Lite (32-bit).
