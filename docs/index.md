@@ -24,7 +24,7 @@ Implemented and validated:
 - Administrator sessions invalidated when the account is disabled or its credentials change.
 - Production layout using `punch`, `/home/punch/timeclockpi` and `/var/lib/timeclockpi`, with persistent bounded technical logging.
 
-For a new terminal, follow the [clean installation procedure](deployment.md#clean-installation-on-a-new-raspberry-pi). See also [Architecture](architecture.md), [Development](development.md), [Deployment](deployment.md), [Operations](operations.md), and the [leave and hours reporting rules](leave-configuration.md).
+An [optional Wi-Fi access point for Web Admin](wifi-access-point.md) has been validated using manually installed and configured system services. It is not part of the standard installation.\n\nFor a new terminal, follow the [clean installation procedure](deployment.md#clean-installation-on-a-new-raspberry-pi). See also [Architecture](architecture.md), [Development](development.md), [Deployment](deployment.md), [Operations](operations.md), and the [leave and hours reporting rules](leave-configuration.md).
 
 ## v1 principles
 
