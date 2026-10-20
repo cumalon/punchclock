@@ -12,10 +12,10 @@ A reference terminal was manually configured and tested with the following compo
 - A **systemd oneshot service** assigns the static address `10.77.0.1/24` to `wlan0` at boot, before hostapd and dnsmasq.
 - **Avahi/mDNS** allows compatible clients to resolve the terminal's `.local` hostname.
 
-On the tested terminal, the SSID was `PunchClock-Menjador`, the access point used 2.4 GHz channel 6 with regulatory country `ES`, and the Web Admin was accessible at:
+For illustration, a hypothetical deployment could use the SSID `PunchClock-Setup` and a private Wi-Fi subnet `10.77.0.0/24`. With a compatible client, the Web Admin could then be reached at:
 
-- `http://192.168.50.1:8000/admin`
-- `http://punchmenjador.local:8000/admin` (on clients supporting mDNS)
+- `http://10.77.0.1:8000/admin` (example AP address)
+- `http://punchclock-demo.local:8000/admin` (example hostname; requires mDNS support)
 
 Access was verified from a phone and a PC connected to the Wi-Fi, including after reboot. The Wi-Fi was deliberately isolated from Internet routing and Ethernet forwarding; clients may report that the network has no Internet access. The terminal's clocking functionality remains independent of network availability.
 
@@ -25,7 +25,7 @@ This is **documentation of a tested capability, not an automated installation pr
 
 The tested setup required configuring NetworkManager to leave only `wlan0` unmanaged, while retaining its management of `eth0`. Do **not** disable NetworkManager globally on a remotely managed terminal. A NetworkManager-managed AP was attempted on the reference Broadcom adapter but failed to initialize; a manual hostapd setup successfully started the AP. This does not mean NetworkManager AP mode is unsupported on all hardware.
 
-The example subnet, SSID, hostname and country are installation-specific and should not be assumed for other sites. Avoid IP conflicts with the wired network. Store the Wi-Fi passphrase only in a root-readable local configuration file; never commit it to Git. Verify that IP forwarding remains disabled and that Wi-Fi clients cannot reach the wired network through the terminal.
+These SSID, subnet and hostname values are fictional examples, not the identifiers of the validated installation. Choose suitable values for each deployment and configure the regulatory country according to the installation location. Avoid IP conflicts with the wired network. Store the Wi-Fi passphrase only in a root-readable local configuration file; never commit it to Git. Verify that IP forwarding remains disabled and that Wi-Fi clients cannot reach the wired network through the terminal.
 
 ## Security and verification
 
