@@ -8,9 +8,9 @@ theme:
 
 nav:
   - Home: index.md
-  - Architecture: architecture.md
-  - Development: development.md
-  - Deployment: deployment.md
-  - Operations: operations.md
-  - Optional Wi-Fi access point: wifi-access-point.md
-  - Leave and hours reporting: leave-configuration.md
+  - Design: architecture.md
+  - Dev: development.md
+  - Install: deployment.md
+  - Ops: operations.md
+  - Wi-Fi AP: wifi-access-point.md
+  - Leave & hours: leave-configuration.md
